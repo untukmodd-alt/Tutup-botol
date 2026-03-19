@@ -58,9 +58,18 @@ async function saveUserToDB(uid, username, playerCode, avatar){
   await set(ref(db,'playerCodes/'+playerCode), uid);
 }
 
-// Update user online status
+// Update user online status - pakai onDisconnect untuk reliability
 function setOnlineStatus(uid, online){
   update(ref(db,'users/'+uid), {online, lastSeen: serverTimestamp()});
+}
+
+async function setupPresence(uid){
+  const { onDisconnect: fbOnDisconnect } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
+  const userRef = ref(db,'users/'+uid);
+  // Set online immediately
+  await update(userRef, {online: true, lastSeen: serverTimestamp()});
+  // Set offline automatically when disconnected
+  fbOnDisconnect(userRef).update({online: false, lastSeen: serverTimestamp()});
 }
 
 // Load user from DB and apply to UI
@@ -265,8 +274,7 @@ window.renderFriendsList = renderFriendsList;
 onAuthStateChanged(auth, async (user)=>{
   if(user){
     await loadUserFromDB(user.uid);
-    setOnlineStatus(user.uid, true);
-    window.addEventListener('beforeunload',()=>setOnlineStatus(user.uid, false));
+    await setupPresence(user.uid);
     // Hide auth page, show menu
     document.getElementById('pageAuth')?.classList.remove('active');
     document.getElementById('pageMenu')?.classList.add('active');
@@ -374,7 +382,6 @@ window.pickRegAvatar = function(em){
 }
 
 // Override saveProfileFromModal to also save to Firebase
-const _origSaveProfileFromModal = window.saveProfileFromModal;
 window.saveProfileFromModal = async function(){
   const name = document.getElementById('profileNameInput').value.trim()||'Player';
   const avatar = document.getElementById('profileAvatarBig').textContent||'🎭';
@@ -384,12 +391,19 @@ window.saveProfileFromModal = async function(){
   if(ab) ab.textContent = avatar;
   saveProfile();
   if(window._fbUser){
-    await saveProfileToFirebase({username: name, avatar});
-    // Update username index
-    if(window._fbUser.username !== name){
-      await set(ref(db,'usernames/'+window._fbUser.username.toLowerCase()), null);
-      await set(ref(db,'usernames/'+name.toLowerCase()), window._fbUser.uid);
+    const oldName = window._fbUser.username;
+    // Selalu update username index di Firebase (hapus lama, tambah baru)
+    if(oldName && oldName.toLowerCase() !== name.toLowerCase()){
+      await set(ref(db,'usernames/'+oldName.toLowerCase()), null);
     }
+    await set(ref(db,'usernames/'+name.toLowerCase()), window._fbUser.uid);
+    await update(ref(db,'users/'+window._fbUser.uid), {username: name, usernameLower: name.toLowerCase(), avatar});
+    // Update local cache
+    window._fbUser.username = name;
+    window._fbUser.avatar = avatar;
+    // Update player code display
+    const pcEl = document.getElementById('playerCodeDisplay');
+    if(pcEl) pcEl.textContent = window._fbUser.playerCode||'';
   }
   document.getElementById('modalProfile').classList.remove('show');
   window.showToast('✅ Profil disimpan!');
