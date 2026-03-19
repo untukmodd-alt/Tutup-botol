@@ -9,7 +9,7 @@
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
 import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
-import { getDatabase, ref, set, get, update, onValue, push, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+import { getDatabase, ref, set, get, update, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const firebaseConfig = {
   apiKey: "AIzaSyAlqKxBvqB2LmX5rJJxCRK7fqkLpDq3yzg",
@@ -25,121 +25,110 @@ const app = initializeApp(firebaseConfig);
 const auth = getAuth(app);
 const db = getDatabase(app);
 
-// Generate unique player code like #A3K9
+// Expose ke window untuk non-module scripts
+window._db = db;
+window._db_ref = ref;
+window._db_set = set;
+window._db_get = get;
+window._db_update = update;
+window._db_onValue = onValue;
+
+// ===== HELPERS =====
 function genPlayerCode(){
-  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
-  let code='#';
-  for(let i=0;i<4;i++) code+=chars[Math.floor(Math.random()*chars.length)];
+  const chars = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code = '#';
+  for(let i=0;i<4;i++) code += chars[Math.floor(Math.random()*chars.length)];
   return code;
 }
 
-// Check if username is taken
 async function isUsernameTaken(username){
   const snap = await get(ref(db,'usernames/'+username.toLowerCase()));
   return snap.exists();
 }
 
-// Save user to database after register
 async function saveUserToDB(uid, username, playerCode, avatar){
   await set(ref(db,'users/'+uid), {
     username,
     usernameLower: username.toLowerCase(),
-    playerCode,
-    avatar,
-    gold: 9999,
-    diamonds: 500,
-    spinCount: 3,
-    equippedSkinId: 0,
+    playerCode, avatar,
+    gold: 9999, diamonds: 500, spinCount: 3, equippedSkinId: 0,
     createdAt: serverTimestamp(),
-    online: true,
-    lastSeen: serverTimestamp(),
+    online: true, lastSeen: serverTimestamp(),
   });
   await set(ref(db,'usernames/'+username.toLowerCase()), uid);
   await set(ref(db,'playerCodes/'+playerCode), uid);
 }
 
-// Update user online status - pakai onDisconnect untuk reliability
-function setOnlineStatus(uid, online){
-  update(ref(db,'users/'+uid), {online, lastSeen: serverTimestamp()});
-}
-
+// ===== PRESENCE =====
 async function setupPresence(uid){
-  const { onDisconnect: fbOnDisconnect } = await import("https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js");
   const userRef = ref(db,'users/'+uid);
-  // Set online immediately
   await update(userRef, {online: true, lastSeen: serverTimestamp()});
-  // Set offline automatically when disconnected
-  fbOnDisconnect(userRef).update({online: false, lastSeen: serverTimestamp()});
+  onDisconnect(userRef).update({online: false, lastSeen: serverTimestamp()});
 }
 
-// Load user from DB and apply to UI
-async function loadUserFromDB(uid){
-  const snap = await get(ref(db,'users/'+uid));
-  if(snap.exists()){
-    const data = snap.val();
-    window._fbUser = {uid, ...data};
-    applyFirebaseProfile(data);
-    // Listen for friend requests
-    listenFriendRequests(uid);
-    listenFriends(uid);
-    return data;
-  }
-  return null;
-}
-
+// ===== PROFILE =====
 function applyFirebaseProfile(data){
-  const dn = document.getElementById('displayName');
-  const ab = document.getElementById('avatarBox');
-  const goldEl = document.getElementById('goldCount');
-  const diaEl = document.getElementById('diamondCount');
-  const scEl = document.getElementById('spinCount');
-  if(dn) dn.textContent = data.username||'Player';
-  if(ab) ab.textContent = data.avatar||'🎭';
-  if(goldEl) goldEl.textContent = data.gold||9999;
-  if(diaEl){ diaEl.textContent = data.diamonds||500; diamonds = data.diamonds||500; }
-  if(scEl) scEl.textContent = data.spinCount||3;
-  if(data.equippedSkinId!=null){ equippedSkinId=data.equippedSkinId; curSkin=data.equippedSkinId; setSkin(curSkin); }
-  if(data.skinOwned){ data.skinOwned.forEach((owned,i)=>{if(ALL_SKINS[i]) ALL_SKINS[i].owned=owned;}); }
-  // Show player code
-  const pcEl = document.getElementById('playerCodeDisplay');
-  if(pcEl) pcEl.textContent = data.playerCode||'';
-  updateVaultCount();
+  const els = {
+    displayName: data.username||'Player',
+    avatarBox: data.avatar||'🎭',
+    goldCount: data.gold!=null ? data.gold : 9999,
+    diamondCount: data.diamonds!=null ? data.diamonds : 500,
+    spinCount: data.spinCount!=null ? data.spinCount : 3,
+    playerCodeDisplay: data.playerCode||'',
+  };
+  Object.entries(els).forEach(([id,val])=>{
+    const el = document.getElementById(id);
+    if(el) el.textContent = val;
+  });
+  if(data.diamonds!=null && typeof diamonds !== 'undefined') diamonds = data.diamonds;
+  if(data.equippedSkinId!=null && typeof setSkin === 'function'){
+    equippedSkinId = data.equippedSkinId;
+    curSkin = data.equippedSkinId;
+    setSkin(curSkin);
+  }
+  if(data.skinOwned && typeof ALL_SKINS !== 'undefined'){
+    data.skinOwned.forEach((owned,i)=>{ if(ALL_SKINS[i]) ALL_SKINS[i].owned = owned; });
+  }
+  if(typeof updateVaultCount === 'function') updateVaultCount();
 }
 window.applyFirebaseProfile = applyFirebaseProfile;
 
-// Save profile changes to Firebase
+async function loadUserFromDB(uid){
+  const snap = await get(ref(db,'users/'+uid));
+  if(!snap.exists()) return null;
+  const data = snap.val();
+  window._fbUser = {uid, ...data};
+  applyFirebaseProfile(data);
+  listenFriendRequests(uid);
+  listenFriends(uid);
+  return data;
+}
+
 window.saveProfileToFirebase = async function(updates){
   if(!window._fbUser) return;
   await update(ref(db,'users/'+window._fbUser.uid), updates);
   window._fbUser = {...window._fbUser, ...updates};
 }
 
-// ===== FRIEND SYSTEM =====
-let _friendListeners = [];
-
+// ===== FRIENDS =====
 function listenFriendRequests(uid){
-  const r = ref(db,'friendRequests/'+uid);
-  onValue(r, snap=>{
+  onValue(ref(db,'friendRequests/'+uid), snap=>{
     const reqs = snap.val()||{};
-    const pending = Object.entries(reqs).filter(([,v])=>v.status==='pending');
-    const badge = document.getElementById('friendReqBadge');
-    if(badge) badge.textContent = pending.length > 0 ? pending.length : '';
-    badge && (badge.style.display = pending.length > 0 ? 'flex' : 'none');
+    const pending = Object.entries(reqs).filter(([,v])=>v&&v.status==='pending');
     window._pendingRequests = pending;
+    const badge = document.getElementById('friendReqBadge');
+    if(badge){
+      badge.textContent = pending.length > 0 ? pending.length : '';
+      badge.style.display = pending.length > 0 ? 'flex' : 'none';
+    }
   });
 }
 
 function listenFriends(uid){
-  const r = ref(db,'friendships/'+uid);
-  onValue(r, snap=>{
-    const friends = snap.val()||{};
-    window._friends = friends;
-    // Update tab teman jika sedang terbuka
-    const listBody = document.getElementById('friendsListBody');
-    if(listBody) renderFriendsList(friends);
-    // Update undang teman di lobby jika sedang terbuka
-    const inviteList = document.getElementById('inviteList');
-    if(inviteList) buildInviteList();
+  onValue(ref(db,'friendships/'+uid), snap=>{
+    window._friends = snap.val()||{};
+    if(document.getElementById('friendsListBody')) renderFriendsList(window._friends);
+    if(document.getElementById('inviteList')) buildInviteList();
   });
 }
 
@@ -149,59 +138,52 @@ window.searchPlayer = async function(){
   const resultsEl = document.getElementById('searchResults');
   resultsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:10px;">Mencari...</div>';
 
-  let foundUid = null, foundData = null;
+  let foundUid = null;
+  try{
+    if(q.startsWith('#')){
+      const snap = await get(ref(db,'playerCodes/'+q.toUpperCase()));
+      if(snap.exists()) foundUid = snap.val();
+    } else {
+      const snap = await get(ref(db,'usernames/'+q.toLowerCase()));
+      if(snap.exists()) foundUid = snap.val();
+    }
+  } catch(e){ resultsEl.innerHTML = '<div style="color:var(--red);font-size:13px;text-align:center;padding:10px;">Error koneksi.</div>'; return; }
 
-  if(q.startsWith('#')){
-    // Search by player code
-    const snap = await get(ref(db,'playerCodes/'+q.toUpperCase()));
-    if(snap.exists()) foundUid = snap.val();
-  } else {
-    // Search by username
-    const snap = await get(ref(db,'usernames/'+q.toLowerCase()));
-    if(snap.exists()) foundUid = snap.val();
-  }
-
-  if(foundUid){
-    const userSnap = await get(ref(db,'users/'+foundUid));
-    if(userSnap.exists()) foundData = userSnap.val();
-  }
-
-  if(!foundData || foundUid === window._fbUser?.uid){
+  if(!foundUid || foundUid === window._fbUser?.uid){
     resultsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:10px;">Pemain tidak ditemukan.</div>';
     return;
   }
 
+  const userSnap = await get(ref(db,'users/'+foundUid));
+  if(!userSnap.exists()){ resultsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:10px;">Pemain tidak ditemukan.</div>'; return; }
+  const d = userSnap.val();
   const isFriend = window._friends && window._friends[foundUid];
-  const sentReq = false; // TODO: check sent requests
 
-  resultsEl.innerHTML = `
-    <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;">
-      <div style="font-size:28px;">${foundData.avatar||'🎭'}</div>
-      <div style="flex:1;">
-        <div style="font-family:'Boogaloo',cursive;font-size:15px;color:#fff;">${foundData.username}</div>
-        <div style="font-size:11px;color:var(--muted);">${foundData.playerCode||''} &nbsp;•&nbsp; ${foundData.online?'🟢 Online':'⚫ Offline'}</div>
-      </div>
-      ${isFriend
-        ? `<div style="font-size:11px;color:var(--teal);">✅ Teman</div>`
-        : `<button onclick="sendFriendRequest('${foundUid}','${foundData.username}')" style="background:linear-gradient(135deg,var(--purple),var(--cyan));border:none;border-radius:8px;padding:7px 14px;color:#fff;font-family:'Boogaloo',cursive;font-size:13px;cursor:pointer;">+ Tambah</button>`
-      }
-    </div>
-  `;
+    const btnHtml = isFriend
+    ? '<span style="font-size:12px;color:#00d4aa;font-weight:700;">\u2705 Teman</span>'
+    : '<button onclick="window.sendFriendRequest(\''+foundUid+'\',\''+encodeURIComponent(d.username)+'\',true)" style="background:linear-gradient(135deg,#7c5cfc,#00d4ff);border:none;border-radius:8px;padding:8px 16px;color:#fff;font-size:14px;cursor:pointer;">+ Tambah</button>';
+  const statusColor = d.online ? '#00d4aa' : '#5a7090';
+  const statusText = d.online ? '\uD83D\uDFE2 Online' : '\u26AB Offline';
+  resultsEl.innerHTML = '<div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.05);border:1px solid rgba(255,255,255,0.12);border-radius:12px;padding:12px;">'
+    + '<div style="font-size:30px;">' + (d.avatar||'\uD83C\uDFAD') + '</div>'
+    + '<div style="flex:1;">'
+    + '<div style="font-family:Boogaloo,cursive;font-size:16px;color:#fff;">' + d.username + '</div>'
+    + '<div style="font-size:11px;color:' + statusColor + ';">' + (d.playerCode||'') + ' &nbsp;&bull;&nbsp; ' + statusText + '</div>'
+    + '</div>'
+    + btnHtml
+    + '</div>';
 }
 
-window.sendFriendRequest = async function(toUid, toName){
+window.sendFriendRequest = async function(toUid, toNameEncoded, _raw){
+  const toName = _raw ? decodeURIComponent(toNameEncoded) : toNameEncoded;
   const me = window._fbUser;
   if(!me) return;
-  // Send request to target
   await set(ref(db,'friendRequests/'+toUid+'/'+me.uid), {
-    from: me.uid,
-    fromName: me.username,
-    fromAvatar: me.avatar||'🎭',
-    fromCode: me.playerCode||'',
-    status: 'pending',
-    createdAt: serverTimestamp(),
+    from: me.uid, fromName: me.username,
+    fromAvatar: me.avatar||'🎭', fromCode: me.playerCode||'',
+    status: 'pending', createdAt: serverTimestamp(),
   });
-  window.showToast('📨 Permintaan pertemanan dikirim ke '+toName+'!');
+  window.showToast('📨 Permintaan dikirim ke '+toName+'!');
   document.getElementById('searchResults').innerHTML = '<div style="color:var(--teal);font-size:13px;text-align:center;padding:10px;">✅ Permintaan terkirim!</div>';
 }
 
@@ -209,18 +191,14 @@ window.respondFriendRequest = async function(fromUid, accept){
   const me = window._fbUser;
   if(!me) return;
   if(accept){
-    // Add each other as friends
     await set(ref(db,'friendships/'+me.uid+'/'+fromUid), {since: serverTimestamp()});
     await set(ref(db,'friendships/'+fromUid+'/'+me.uid), {since: serverTimestamp()});
     window.showToast('🎉 Kalian sekarang berteman!');
-    // Update local cache dan render ulang
-    if(!window._friends) window._friends = {};
-    window._friends[fromUid] = {since: Date.now()};
-    renderFriendsList(window._friends);
+  } else {
+    window.showToast('Permintaan ditolak.');
   }
-  // Remove request dari pending list
-  window._pendingRequests = (window._pendingRequests||[]).filter(([uid])=>uid!==fromUid);
   await set(ref(db,'friendRequests/'+me.uid+'/'+fromUid), null);
+  window._pendingRequests = (window._pendingRequests||[]).filter(([uid])=>uid!==fromUid);
   renderFriendRequests();
 }
 
@@ -237,12 +215,11 @@ async function renderFriendRequests(){
       <div style="font-size:26px;">${data.fromAvatar||'🎭'}</div>
       <div style="flex:1;">
         <div style="font-family:'Boogaloo',cursive;font-size:14px;color:#fff;">${data.fromName}</div>
-        <div style="font-size:11px;color:var(--muted);">${data.fromCode}</div>
+        <div style="font-size:11px;color:var(--muted);">${data.fromCode||''}</div>
       </div>
       <button onclick="respondFriendRequest('${uid}',true)" style="background:linear-gradient(135deg,#00d4aa,#00b894);border:none;border-radius:8px;padding:6px 12px;color:#0a1428;font-family:'Boogaloo',cursive;font-size:13px;cursor:pointer;margin-right:6px;">✓ Terima</button>
       <button onclick="respondFriendRequest('${uid}',false)" style="background:rgba(233,69,96,0.2);border:1px solid rgba(233,69,96,0.4);border-radius:8px;padding:6px 12px;color:var(--red);font-family:'Boogaloo',cursive;font-size:13px;cursor:pointer;">✕</button>
-    </div>
-  `).join('');
+    </div>`).join('');
 }
 
 async function renderFriendsList(friends){
@@ -254,18 +231,18 @@ async function renderFriendsList(friends){
     return;
   }
   const rows = await Promise.all(uids.map(async uid=>{
-    const snap = await get(ref(db,'users/'+uid));
-    if(!snap.exists()) return '';
-    const d = snap.val();
-    return `
-      <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:10px;margin-bottom:8px;">
+    try{
+      const snap = await get(ref(db,'users/'+uid));
+      if(!snap.exists()) return '';
+      const d = snap.val();
+      return `<div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:10px;margin-bottom:8px;">
         <div style="font-size:26px;">${d.avatar||'🎭'}</div>
         <div style="flex:1;">
           <div style="font-family:'Boogaloo',cursive;font-size:14px;color:#fff;">${d.username}</div>
           <div style="font-size:11px;color:${d.online?'#00d4aa':'var(--muted)'};">${d.online?'🟢 Online':'⚫ Offline'} &nbsp;•&nbsp; ${d.playerCode||''}</div>
         </div>
-      </div>
-    `;
+      </div>`;
+    }catch(e){ return ''; }
   }));
   container.innerHTML = rows.join('');
 }
@@ -283,20 +260,17 @@ onAuthStateChanged(auth, async (user)=>{
   if(user){
     await loadUserFromDB(user.uid);
     await setupPresence(user.uid);
-    // Hide auth page, show menu
     document.getElementById('pageAuth')?.classList.remove('active');
     document.getElementById('pageMenu')?.classList.add('active');
-    if(window.currentPage === undefined) window.currentPage = 'pageMenu';
+    window.currentPage = 'pageMenu';
   } else {
-    // Show auth page
     document.getElementById('pageMenu')?.classList.remove('active');
     const authPage = document.getElementById('pageAuth');
     if(authPage){
       authPage.classList.add('active');
-      authPage.style.transform='translateX(0)';
-      authPage.style.opacity='1';
-      authPage.style.pointerEvents='all';
+      authPage.style.cssText += ';transform:translateX(0);opacity:1;pointer-events:all;';
     }
+    window.currentPage = 'pageAuth';
   }
 });
 
@@ -307,32 +281,37 @@ window.doRegister = async function(){
   const pass = document.getElementById('regPass').value;
   const avatar = window._regAvatar||'🎭';
   const errEl = document.getElementById('authError');
+  const setErr = msg => { if(errEl) errEl.textContent = msg; };
 
-  if(!username||username.length<3){ errEl.textContent='Username minimal 3 karakter!'; return; }
-  if(!/^[a-zA-Z0-9_]+$/.test(username)){ errEl.textContent='Username hanya boleh huruf, angka, underscore!'; return; }
-  if(!email||!pass||pass.length<6){ errEl.textContent='Password minimal 6 karakter!'; return; }
+  if(!username||username.length<3){ setErr('Username minimal 3 karakter!'); return; }
+  if(!/^[a-zA-Z0-9_]+$/.test(username)){ setErr('Username hanya boleh huruf, angka, underscore!'); return; }
+  if(!email){ setErr('Email tidak boleh kosong!'); return; }
+  if(!pass||pass.length<6){ setErr('Password minimal 6 karakter!'); return; }
 
-  errEl.textContent='Mengecek username...';
-  if(await isUsernameTaken(username)){ errEl.textContent='Username sudah dipakai!'; return; }
+  setErr('Mengecek username...');
+  if(await isUsernameTaken(username)){ setErr('Username sudah dipakai!'); return; }
 
-  errEl.textContent='Mendaftarkan akun...';
+  setErr('Mendaftarkan akun...');
   try{
     const cred = await createUserWithEmailAndPassword(auth, email, pass);
     const playerCode = genPlayerCode();
     await updateProfile(cred.user, {displayName: username});
     await saveUserToDB(cred.user.uid, username, playerCode, avatar);
-    // Manually apply profile ke UI langsung tanpa tunggu onAuthStateChanged
+    await setupPresence(cred.user.uid);
     const profileData = {username, avatar, playerCode, gold:9999, diamonds:500, spinCount:3, equippedSkinId:0};
     window._fbUser = {uid: cred.user.uid, ...profileData};
-    if(typeof applyFirebaseProfile === 'function') applyFirebaseProfile(profileData);
-    // Pindah ke menu
+    applyFirebaseProfile(profileData);
+    listenFriendRequests(cred.user.uid);
+    listenFriends(cred.user.uid);
     document.getElementById('pageAuth')?.classList.remove('active');
     document.getElementById('pageMenu')?.classList.add('active');
-    errEl.textContent='';
+    window.currentPage = 'pageMenu';
+    setErr('');
     window.showToast('🎉 Selamat datang, '+username+'!');
   } catch(e){
-    if(e.code==='auth/email-already-in-use') errEl.textContent='Email sudah terdaftar!';
-    else errEl.textContent='Error: '+e.message;
+    if(e.code==='auth/email-already-in-use') setErr('Email sudah terdaftar!');
+    else if(e.code==='auth/invalid-email') setErr('Format email tidak valid!');
+    else setErr('Error: '+e.message);
   }
 }
 
@@ -341,96 +320,96 @@ window.doLogin = async function(){
   const email = document.getElementById('loginEmail').value.trim();
   const pass = document.getElementById('loginPass').value;
   const errEl = document.getElementById('authError');
-  if(!email||!pass){ if(errEl) errEl.textContent='Isi email dan password!'; return; }
-  if(errEl) errEl.textContent='Masuk...';
+  const setErr = msg => { if(errEl) errEl.textContent = msg; };
+  if(!email||!pass){ setErr('Isi email dan password!'); return; }
+  setErr('Masuk...');
   try{
     await signInWithEmailAndPassword(auth, email, pass);
-    if(errEl) errEl.textContent='';
+    setErr('');
   } catch(e){
-    const msg = (e.code==='auth/invalid-credential'||e.code==='auth/wrong-password'||e.code==='auth/user-not-found')
-      ? 'Email atau password salah!'
-      : e.code==='auth/too-many-requests'
-      ? 'Terlalu banyak percobaan, coba lagi nanti.'
-      : 'Error: '+e.message;
-    if(errEl) errEl.textContent=msg;
-    else window.showToast('❌ '+msg);
+    const bad = ['auth/invalid-credential','auth/wrong-password','auth/user-not-found'];
+    setErr(bad.includes(e.code) ? 'Email atau password salah!'
+      : e.code==='auth/too-many-requests' ? 'Terlalu banyak percobaan, coba lagi nanti.'
+      : 'Error: '+e.message);
   }
 }
 
 // ===== LOGOUT =====
 window.doLogout = async function(){
-  if(window._fbUser) setOnlineStatus(window._fbUser.uid, false);
+  if(window._fbUser) await update(ref(db,'users/'+window._fbUser.uid),{online:false});
   await signOut(auth);
+  window._fbUser = null;
+  window._friends = {};
+  window._pendingRequests = [];
   window.showToast('👋 Keluar dari akun');
 }
 
-// Switch auth tabs
+// ===== SWITCH AUTH TAB =====
 window.switchAuthTab = function(tab){
-  document.getElementById('tabLogin').classList.toggle('auth-tab-active', tab==='login');
-  document.getElementById('tabRegister').classList.toggle('auth-tab-active', tab==='register');
-  document.getElementById('formLogin').style.display = tab==='login'?'flex':'none';
-  document.getElementById('formRegister').style.display = tab==='register'?'flex':'none';
-  document.getElementById('authError').textContent='';
+  document.getElementById('tabLogin')?.classList.toggle('auth-tab-active', tab==='login');
+  document.getElementById('tabRegister')?.classList.toggle('auth-tab-active', tab==='register');
+  const fl = document.getElementById('formLogin');
+  const fr = document.getElementById('formRegister');
+  if(fl) fl.style.display = tab==='login'?'flex':'none';
+  if(fr) fr.style.display = tab==='register'?'flex':'none';
+  const errEl = document.getElementById('authError');
+  if(errEl) errEl.textContent='';
 }
 
-// Build avatar picker buttons
-const _regAvatars = ['🎭','⚔️','🔥','💀','🌊','⚡','🌑','🦊','🐉','👑','🎯','💎','🌈','🦁','🐺','🤖','👻','🎮','🏆','💫'];
-const _avPickEl = document.getElementById('regAvatarPick');
-if(_avPickEl){
-  _regAvatars.forEach(em=>{
+// ===== AVATAR PICKER (dipanggil setelah DOM ready) =====
+window.initRegAvatarPicker = function(){
+  const avatars = ['🎭','⚔️','🔥','💀','🌊','⚡','🌑','🦊','🐉','👑','🎯','💎','🌈','🦁','🐺','🤖','👻','🎮','🏆','💫'];
+  const el = document.getElementById('regAvatarPick');
+  if(!el) return;
+  el.innerHTML = '';
+  avatars.forEach(em=>{
     const btn = document.createElement('div');
     btn.className = 'reg-av-btn';
     btn.textContent = em;
     btn.onclick = ()=> window.pickRegAvatar(em);
-    _avPickEl.appendChild(btn);
+    el.appendChild(btn);
   });
 }
-
-// Avatar picker for register
-window._regAvatar = '🎭';
 window.pickRegAvatar = function(em){
   window._regAvatar = em;
-  document.getElementById('regAvatarPreview').textContent = em;
-  document.querySelectorAll('.reg-av-btn').forEach(b=>b.classList.toggle('selected', b.textContent===em));
+  const prev = document.getElementById('regAvatarPreview');
+  if(prev) prev.textContent = em;
+  document.querySelectorAll('.reg-av-btn').forEach(b=>b.classList.toggle('selected',b.textContent===em));
 }
+window._regAvatar = '🎭';
 
-// Override saveProfileFromModal to also save to Firebase
+// ===== SAVE PROFILE =====
 window.saveProfileFromModal = async function(){
-  const name = document.getElementById('profileNameInput').value.trim()||'Player';
-  const avatar = document.getElementById('profileAvatarBig').textContent||'🎭';
+  const nameEl = document.getElementById('profileNameInput');
+  const avatarEl = document.getElementById('profileAvatarBig');
+  const name = (nameEl?.value||'').trim() || 'Player';
+  const avatar = avatarEl?.textContent || '🎭';
+
   const dn = document.getElementById('displayName');
   const ab = document.getElementById('avatarBox');
   if(dn) dn.textContent = name;
   if(ab) ab.textContent = avatar;
-  saveProfile();
+
   if(window._fbUser){
     const oldName = window._fbUser.username;
-    // Selalu update username index di Firebase (hapus lama, tambah baru)
+    // Hapus index nama lama, tambah nama baru
     if(oldName && oldName.toLowerCase() !== name.toLowerCase()){
       await set(ref(db,'usernames/'+oldName.toLowerCase()), null);
     }
     await set(ref(db,'usernames/'+name.toLowerCase()), window._fbUser.uid);
-    await update(ref(db,'users/'+window._fbUser.uid), {username: name, usernameLower: name.toLowerCase(), avatar});
-    // Update local cache
+    await update(ref(db,'users/'+window._fbUser.uid), {
+      username: name, usernameLower: name.toLowerCase(), avatar
+    });
     window._fbUser.username = name;
     window._fbUser.avatar = avatar;
-    // Update player code display
-    const pcEl = document.getElementById('playerCodeDisplay');
-    if(pcEl) pcEl.textContent = window._fbUser.playerCode||'';
   }
-  document.getElementById('modalProfile').classList.remove('show');
+
+  if(typeof saveProfile === 'function') saveProfile();
+  document.getElementById('modalProfile')?.classList.remove('show');
   window.showToast('✅ Profil disimpan!');
 }
 
-console.log('🔥 Firebase loaded!');
-
-// Expose Firebase DB functions to window so non-module scripts can use them
-window._db = db;
-window._db_ref = ref;
-window._db_set = set;
-window._db_get = get;
-window._db_update = update;
-window._db_onValue = onValue;
+console.log('🔥 Firebase ready!');
 </script>
 <style>
 :root {
@@ -2201,6 +2180,9 @@ input[type=range]::-webkit-slider-thumb{
 
 <script>
 // ===== BG SETUP =====
+// Init avatar picker untuk form register
+if(window.initRegAvatarPicker) window.initRegAvatarPicker();
+else document.addEventListener('DOMContentLoaded', ()=>{ if(window.initRegAvatarPicker) window.initRegAvatarPicker(); });
 const lineColors=['#7c5cfc','#e94560','#00d4ff','#f5c518','#74b9ff','#00d4aa','#ff7675','#a29bfe'];
 const bgL=document.getElementById('bgLines');
 for(let i=0;i<24;i++){
