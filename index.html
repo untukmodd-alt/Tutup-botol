@@ -134,9 +134,12 @@ function listenFriends(uid){
   onValue(r, snap=>{
     const friends = snap.val()||{};
     window._friends = friends;
-    if(document.getElementById('friendsListBody')){
-      renderFriendsList(friends);
-    }
+    // Update tab teman jika sedang terbuka
+    const listBody = document.getElementById('friendsListBody');
+    if(listBody) renderFriendsList(friends);
+    // Update undang teman di lobby jika sedang terbuka
+    const inviteList = document.getElementById('inviteList');
+    if(inviteList) buildInviteList();
   });
 }
 
@@ -210,8 +213,13 @@ window.respondFriendRequest = async function(fromUid, accept){
     await set(ref(db,'friendships/'+me.uid+'/'+fromUid), {since: serverTimestamp()});
     await set(ref(db,'friendships/'+fromUid+'/'+me.uid), {since: serverTimestamp()});
     window.showToast('🎉 Kalian sekarang berteman!');
+    // Update local cache dan render ulang
+    if(!window._friends) window._friends = {};
+    window._friends[fromUid] = {since: Date.now()};
+    renderFriendsList(window._friends);
   }
-  // Remove request
+  // Remove request dari pending list
+  window._pendingRequests = (window._pendingRequests||[]).filter(([uid])=>uid!==fromUid);
   await set(ref(db,'friendRequests/'+me.uid+'/'+fromUid), null);
   renderFriendRequests();
 }
@@ -333,14 +341,19 @@ window.doLogin = async function(){
   const email = document.getElementById('loginEmail').value.trim();
   const pass = document.getElementById('loginPass').value;
   const errEl = document.getElementById('authError');
-  if(!email||!pass){ errEl.textContent='Isi email dan password!'; return; }
-  errEl.textContent='Masuk...';
+  if(!email||!pass){ if(errEl) errEl.textContent='Isi email dan password!'; return; }
+  if(errEl) errEl.textContent='Masuk...';
   try{
     await signInWithEmailAndPassword(auth, email, pass);
-    errEl.textContent='';
+    if(errEl) errEl.textContent='';
   } catch(e){
-    if(e.code==='auth/invalid-credential'||e.code==='auth/wrong-password') errEl.textContent='Email atau password salah!';
-    else errEl.textContent='Error: '+e.message;
+    const msg = (e.code==='auth/invalid-credential'||e.code==='auth/wrong-password'||e.code==='auth/user-not-found')
+      ? 'Email atau password salah!'
+      : e.code==='auth/too-many-requests'
+      ? 'Terlalu banyak percobaan, coba lagi nanti.'
+      : 'Error: '+e.message;
+    if(errEl) errEl.textContent=msg;
+    else window.showToast('❌ '+msg);
   }
 }
 
@@ -2799,43 +2812,57 @@ function filterVault(type,el){
 }
 
 // ===== INVITE LIST =====
-const FAKE_FRIENDS=[
-  {name:'RayXYZ',emoji:'😎',online:true},
-  {name:'SakuraChan',emoji:'🌸',online:true},
-  {name:'BlazeMaster',emoji:'🔥',online:true},
-  {name:'TideWave',emoji:'🌊',online:false},
-  {name:'NovaStar',emoji:'⭐',online:false},
-  {name:'ZarakiKen',emoji:'⚡',online:true},
-  {name:'IcePrince',emoji:'❄️',online:false},
-];
+// FAKE_FRIENDS dihapus - pakai teman asli dari Firebase
 let invitedFriends=new Set();
 
-function buildInviteList(){
+async function buildInviteList(){
   invitedFriends.clear();
   const list=document.getElementById('inviteList');
   if(!list) return;
+  list.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px;">Memuat teman...</div>';
+
+  const friends = window._friends||{};
+  const uids = Object.keys(friends);
+
+  if(uids.length===0){
+    list.innerHTML='<div style="color:var(--muted);font-size:12px;text-align:center;padding:8px;">Belum ada teman</div>';
+    return;
+  }
+
   list.innerHTML='';
-  FAKE_FRIENDS.forEach((f,i)=>{
-    const div=document.createElement('div');
-    div.className='invite-friend';
-    div.id='ifriend-'+i;
-    div.innerHTML=`
-      <div class="friend-avatar">${f.emoji}</div>
-      <div class="friend-info">
-        <div class="friend-name">${f.name}</div>
-        <div class="friend-status ${f.online?'online':''}">${f.online?'● Online':'○ Offline'}</div>
-      </div>
-      <button class="btn-invite-friend" onclick="inviteFriend(${i},'${f.name}')">Undang</button>
-    `;
-    list.appendChild(div);
-  });
+  for(let i=0; i<uids.length; i++){
+    const uid = uids[i];
+    try{
+      const snap = await window._db_get(window._db_ref(window._db,'users/'+uid));
+      if(!snap.exists()) continue;
+      const f = snap.val();
+      const div=document.createElement('div');
+      div.className='invite-friend';
+      div.id='ifriend-'+i;
+      div.innerHTML=`
+        <div class="friend-avatar">${f.avatar||'🎭'}</div>
+        <div class="friend-info">
+          <div class="friend-name">${f.username}</div>
+          <div class="friend-status ${f.online?'online':''}">${f.online?'● Online':'○ Offline'}</div>
+        </div>
+        <button class="btn-invite-friend" onclick="inviteFriendReal('${uid}','${f.username}',${i})">Undang</button>
+      `;
+      list.appendChild(div);
+    } catch(e){}
+  }
+}
+
+function inviteFriendReal(uid, name, idx){
+  if(invitedFriends.has(uid)) return;
+  invitedFriends.add(uid);
+  const btn=document.querySelector('#ifriend-'+idx+' .btn-invite-friend');
+  if(btn){btn.textContent='Terkirim';btn.className='btn-invite-friend sent';}
+  // Kirim notif invite ke Firebase (bisa dikembangkan ke room invite nanti)
+  showToast('📨 Undangan dikirim ke '+name+'!');
 }
 
 function inviteFriend(idx,name){
-  if(invitedFriends.has(idx)) return;
-  invitedFriends.add(idx);
-  const btn=document.querySelector('#ifriend-'+idx+' .btn-invite-friend');
-  if(btn){btn.textContent='Terkirim';btn.className='btn-invite-friend sent';}
+  // Legacy - tidak dipakai lagi
   showToast('📨 Undangan dikirim ke '+name+'!');
 }
 
