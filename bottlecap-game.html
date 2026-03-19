@@ -864,7 +864,7 @@ function phys(){
       showKP(p,ap);updHUD();
 
       if(gameMode===3){
-        // Deathmatch: always respawn quickly, no round end
+        // Deathmatch: respawn cepat, game terus jalan
         setTimeout(()=>{
           p.alive=true;
           p.x=WW*.1+Math.random()*WW*.8;p.y=WH*.1+Math.random()*WH*.8;
@@ -872,13 +872,13 @@ function phys(){
         },1200);
         setTimeout(()=>{ap.vx=0;ap.vy=0;moving=false;ap.trail=[];showTA();},350);
       } else {
+        // Mode normal: TIDAK respawn, cek apakah ronde selesai
         const alive=players.filter(x=>x.alive);
-        if(alive.length<=1){setTimeout(()=>endRound(alive[0]||ap),700);return;}
-        setTimeout(()=>{
-          p.alive=true;
-          p.x=WW*.1+Math.random()*WW*.8;p.y=WH*.1+Math.random()*WH*.8;
-          p.vx=0;p.vy=0;p.trail=[];spP(p.x,p.y,p.color,10);
-        },1500);
+        if(alive.length<=1){
+          setTimeout(()=>endRound(alive[0]||ap),700);
+          return;
+        }
+        // Masih ada lebih dari 1 pemain hidup, lanjutkan
         setTimeout(()=>{ap.vx=0;ap.vy=0;moving=false;ap.trail=[];showTA();},350);
       }
     }

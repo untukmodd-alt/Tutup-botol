@@ -99,6 +99,21 @@ async function loadUserFromDB(uid){
   const data = snap.val();
   window._fbUser = {uid, ...data};
   applyFirebaseProfile(data);
+
+  // Auto-repair: pastikan usernames index selalu sinkron dengan nama terkini
+  if(data.username){
+    const nameKey = data.username.toLowerCase();
+    const nameSnap = await get(ref(db,'usernames/'+nameKey));
+    // Kalau index tidak ada atau pointing ke uid lain, perbaiki
+    if(!nameSnap.exists() || nameSnap.val() !== uid){
+      await set(ref(db,'usernames/'+nameKey), uid);
+    }
+    // Update usernameLower jika belum ada
+    if(!data.usernameLower){
+      await update(ref(db,'users/'+uid), {usernameLower: nameKey});
+    }
+  }
+
   listenFriendRequests(uid);
   listenFriends(uid);
   return data;
