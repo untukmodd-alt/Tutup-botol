@@ -8,7 +8,7 @@
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile, GoogleAuthProvider, signInWithRedirect, getRedirectResult } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getDatabase, ref, set, get, update, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const firebaseConfig = {
@@ -153,6 +153,12 @@ window.searchPlayer = async function(){
   const resultsEl = document.getElementById('searchResults');
   resultsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:10px;">Mencari...</div>';
 
+  // Pastikan Firebase sudah siap
+  if(!window._db || !window._db_ref || !window._db_get){
+    resultsEl.innerHTML = '<div style="color:var(--red);font-size:13px;text-align:center;padding:10px;">Firebase belum siap, coba lagi sebentar...</div>';
+    return;
+  }
+
   let foundUid = null;
   try{
     if(q.startsWith('#')){
@@ -162,7 +168,11 @@ window.searchPlayer = async function(){
       const snap = await get(ref(db,'usernames/'+q.toLowerCase()));
       if(snap.exists()) foundUid = snap.val();
     }
-  } catch(e){ resultsEl.innerHTML = '<div style="color:var(--red);font-size:13px;text-align:center;padding:10px;">Error koneksi.</div>'; return; }
+  } catch(e){
+    resultsEl.innerHTML = '<div style="color:var(--red);font-size:13px;text-align:center;padding:10px;">Error: '+e.message+'</div>';
+    console.error('searchPlayer error:', e);
+    return;
+  }
 
   if(!foundUid || foundUid === window._fbUser?.uid){
     resultsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:10px;">Pemain tidak ditemukan.</div>';
@@ -271,6 +281,9 @@ window.renderFriendRequests = renderFriendRequests;
 window.renderFriendsList = renderFriendsList;
 
 // ===== AUTH STATE =====
+// Handle redirect result dari Google login terlebih dahulu
+handleGoogleRedirect();
+
 onAuthStateChanged(auth, async (user)=>{
   if(user){
     await loadUserFromDB(user.uid);
@@ -357,6 +370,44 @@ window.doLogout = async function(){
   window._friends = {};
   window._pendingRequests = [];
   window.showToast('👋 Keluar dari akun');
+}
+
+// ===== LOGIN GOOGLE =====
+window.doLoginGoogle = async function(){
+  const errEl = document.getElementById('authError');
+  const setErr = msg => { if(errEl) errEl.textContent = msg; };
+  setErr('Membuka Google...');
+  try{
+    const provider = new GoogleAuthProvider();
+    await signInWithRedirect(auth, provider);
+    // Halaman akan redirect ke Google, lalu kembali
+  } catch(e){
+    setErr('Error: '+e.message);
+  }
+}
+
+// Handle hasil redirect dari Google login
+async function handleGoogleRedirect(){
+  try{
+    const result = await getRedirectResult(auth);
+    if(!result) return; // Bukan dari redirect
+    const user = result.user;
+    const snap = await get(ref(db,'users/'+user.uid));
+    if(!snap.exists()){
+      // User baru — buat profil otomatis
+      let username = (user.displayName||'Player').replace(/[^a-zA-Z0-9_]/g,'').slice(0,20)||'Player';
+      if(username.length < 3) username = 'Player'+Math.floor(Math.random()*9999);
+      const usnap = await get(ref(db,'usernames/'+username.toLowerCase()));
+      if(usnap.exists()) username = username + Math.floor(Math.random()*99);
+      const playerCode = genPlayerCode();
+      await saveUserToDB(user.uid, username, playerCode, '👑');
+      window.showToast('🎉 Selamat datang, '+username+'!');
+    } else {
+      window.showToast('✅ Masuk sebagai '+snap.val().username+'!');
+    }
+  } catch(e){
+    console.error('Google redirect error:', e);
+  }
 }
 
 // ===== SWITCH AUTH TAB =====
@@ -1752,6 +1803,19 @@ input[type=range]::-webkit-slider-thumb{
   <div class="auth-box">
     <div class="auth-logo">🎯 TUTUP BOTOL</div>
     <div class="auth-sub">Login atau daftar untuk main online</div>
+
+    <!-- GOOGLE LOGIN -->
+    <button onclick="doLoginGoogle()" style="display:flex;align-items:center;justify-content:center;gap:10px;width:100%;background:#fff;border:none;border-radius:12px;padding:13px;font-family:'Outfit',sans-serif;font-size:15px;font-weight:700;color:#333;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.3);margin-bottom:14px;transition:transform 0.15s;" onmousedown="this.style.transform='scale(0.97)'" onmouseup="this.style.transform='scale(1)'">
+      <img src="https://www.gstatic.com/firebasejs/ui/2.0.0/images/auth/google.svg" width="22" height="22">
+      Masuk dengan Google
+    </button>
+
+    <div style="display:flex;align-items:center;gap:8px;margin-bottom:14px;">
+      <div style="flex:1;height:1px;background:rgba(255,255,255,0.1);"></div>
+      <div style="font-size:12px;color:var(--muted);">atau</div>
+      <div style="flex:1;height:1px;background:rgba(255,255,255,0.1);"></div>
+    </div>
+
     <div class="auth-tabs">
       <div class="auth-tab auth-tab-active" id="tabLogin" onclick="switchAuthTab('login')">Masuk</div>
       <div class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">Daftar</div>
@@ -1763,6 +1827,7 @@ input[type=range]::-webkit-slider-thumb{
       <input class="auth-input" id="loginPass" type="password" placeholder="Password" autocomplete="current-password">
       <div class="auth-error" id="authError"></div>
       <button class="auth-btn" onclick="doLogin()">Masuk 🎮</button>
+      <button onclick="playOffline()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:11px;color:var(--muted);font-family:'Boogaloo',cursive;font-size:15px;cursor:pointer;width:100%;margin-top:2px;">⚡ Lewati — Main Offline</button>
     </div>
 
     <!-- REGISTER FORM -->
@@ -1776,6 +1841,7 @@ input[type=range]::-webkit-slider-thumb{
       <input class="auth-input" id="regEmail" type="email" placeholder="Email" autocomplete="email">
       <input class="auth-input" id="regPass" type="password" placeholder="Password (min 6 karakter)" autocomplete="new-password">
       <button class="auth-btn" onclick="doRegister()">Daftar Sekarang 🚀</button>
+      <button onclick="playOffline()" style="background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.15);border-radius:12px;padding:11px;color:var(--muted);font-family:'Boogaloo',cursive;font-size:15px;cursor:pointer;width:100%;margin-top:2px;">⚡ Lewati — Main Offline</button>
     </div>
   </div>
 </div>
@@ -3438,6 +3504,20 @@ function showToast(msg){
   t.textContent=msg; t.classList.add('show');
   clearTimeout(t._t);
   t._t=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+// ===== PLAY OFFLINE =====
+window.playOffline = function(){
+  window._fbUser = null;
+  window._offlineMode = true;
+  const dn = document.getElementById('displayName');
+  const ab = document.getElementById('avatarBox');
+  if(dn) dn.textContent = 'Guest';
+  if(ab) ab.textContent = '🎮';
+  document.getElementById('pageAuth')?.classList.remove('active');
+  document.getElementById('pageMenu')?.classList.add('active');
+  window.currentPage = 'pageMenu';
+  showToast('⚡ Main sebagai Guest — fitur online dinonaktifkan');
 }
 
 // ===== FRIENDS PAGE HELPERS =====
