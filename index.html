@@ -5,6 +5,385 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
 <title>Tutup Botol</title>
 <link href="https://fonts.googleapis.com/css2?family=Boogaloo&family=Outfit:wght@400;600;700;800&display=swap" rel="stylesheet">
+<!-- Firebase SDK -->
+<script type="module">
+import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getDatabase, ref, set, get, update, onValue, push, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
+
+const firebaseConfig = {
+  apiKey: "AIzaSyAlqKxBvqB2LmX5rJJxCRK7fqkLpDq3yzg",
+  authDomain: "musikku-364eb.firebaseapp.com",
+  databaseURL: "https://musikku-364eb-default-rtdb.asia-southeast1.firebasedatabase.app",
+  projectId: "musikku-364eb",
+  storageBucket: "musikku-364eb.firebasestorage.app",
+  messagingSenderId: "622841169824",
+  appId: "1:622841169824:web:c95ee04dcb020f273b86c5"
+};
+
+const app = initializeApp(firebaseConfig);
+const auth = getAuth(app);
+const db = getDatabase(app);
+
+// Generate unique player code like #A3K9
+function genPlayerCode(){
+  const chars='ABCDEFGHJKLMNPQRSTUVWXYZ23456789';
+  let code='#';
+  for(let i=0;i<4;i++) code+=chars[Math.floor(Math.random()*chars.length)];
+  return code;
+}
+
+// Check if username is taken
+async function isUsernameTaken(username){
+  const snap = await get(ref(db,'usernames/'+username.toLowerCase()));
+  return snap.exists();
+}
+
+// Save user to database after register
+async function saveUserToDB(uid, username, playerCode, avatar){
+  await set(ref(db,'users/'+uid), {
+    username,
+    usernameLower: username.toLowerCase(),
+    playerCode,
+    avatar,
+    gold: 9999,
+    diamonds: 500,
+    spinCount: 3,
+    equippedSkinId: 0,
+    createdAt: serverTimestamp(),
+    online: true,
+    lastSeen: serverTimestamp(),
+  });
+  await set(ref(db,'usernames/'+username.toLowerCase()), uid);
+  await set(ref(db,'playerCodes/'+playerCode), uid);
+}
+
+// Update user online status
+function setOnlineStatus(uid, online){
+  update(ref(db,'users/'+uid), {online, lastSeen: serverTimestamp()});
+}
+
+// Load user from DB and apply to UI
+async function loadUserFromDB(uid){
+  const snap = await get(ref(db,'users/'+uid));
+  if(snap.exists()){
+    const data = snap.val();
+    window._fbUser = {uid, ...data};
+    applyFirebaseProfile(data);
+    // Listen for friend requests
+    listenFriendRequests(uid);
+    listenFriends(uid);
+    return data;
+  }
+  return null;
+}
+
+function applyFirebaseProfile(data){
+  const dn = document.getElementById('displayName');
+  const ab = document.getElementById('avatarBox');
+  const goldEl = document.getElementById('goldCount');
+  const diaEl = document.getElementById('diamondCount');
+  const scEl = document.getElementById('spinCount');
+  if(dn) dn.textContent = data.username||'Player';
+  if(ab) ab.textContent = data.avatar||'🎭';
+  if(goldEl) goldEl.textContent = data.gold||9999;
+  if(diaEl){ diaEl.textContent = data.diamonds||500; diamonds = data.diamonds||500; }
+  if(scEl) scEl.textContent = data.spinCount||3;
+  if(data.equippedSkinId!=null){ equippedSkinId=data.equippedSkinId; curSkin=data.equippedSkinId; setSkin(curSkin); }
+  if(data.skinOwned){ data.skinOwned.forEach((owned,i)=>{if(ALL_SKINS[i]) ALL_SKINS[i].owned=owned;}); }
+  // Show player code
+  const pcEl = document.getElementById('playerCodeDisplay');
+  if(pcEl) pcEl.textContent = data.playerCode||'';
+  updateVaultCount();
+}
+
+// Save profile changes to Firebase
+window.saveProfileToFirebase = async function(updates){
+  if(!window._fbUser) return;
+  await update(ref(db,'users/'+window._fbUser.uid), updates);
+  window._fbUser = {...window._fbUser, ...updates};
+}
+
+// ===== FRIEND SYSTEM =====
+let _friendListeners = [];
+
+function listenFriendRequests(uid){
+  const r = ref(db,'friendRequests/'+uid);
+  onValue(r, snap=>{
+    const reqs = snap.val()||{};
+    const pending = Object.entries(reqs).filter(([,v])=>v.status==='pending');
+    const badge = document.getElementById('friendReqBadge');
+    if(badge) badge.textContent = pending.length > 0 ? pending.length : '';
+    badge && (badge.style.display = pending.length > 0 ? 'flex' : 'none');
+    window._pendingRequests = pending;
+  });
+}
+
+function listenFriends(uid){
+  const r = ref(db,'friendships/'+uid);
+  onValue(r, snap=>{
+    const friends = snap.val()||{};
+    window._friends = friends;
+    if(document.getElementById('friendsListBody')){
+      renderFriendsList(friends);
+    }
+  });
+}
+
+window.searchPlayer = async function(){
+  const q = document.getElementById('friendSearchInput').value.trim();
+  if(!q){ window.showToast('Ketik username atau #KODE dulu!'); return; }
+  const resultsEl = document.getElementById('searchResults');
+  resultsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:10px;">Mencari...</div>';
+
+  let foundUid = null, foundData = null;
+
+  if(q.startsWith('#')){
+    // Search by player code
+    const snap = await get(ref(db,'playerCodes/'+q.toUpperCase()));
+    if(snap.exists()) foundUid = snap.val();
+  } else {
+    // Search by username
+    const snap = await get(ref(db,'usernames/'+q.toLowerCase()));
+    if(snap.exists()) foundUid = snap.val();
+  }
+
+  if(foundUid){
+    const userSnap = await get(ref(db,'users/'+foundUid));
+    if(userSnap.exists()) foundData = userSnap.val();
+  }
+
+  if(!foundData || foundUid === window._fbUser?.uid){
+    resultsEl.innerHTML = '<div style="color:var(--muted);font-size:13px;text-align:center;padding:10px;">Pemain tidak ditemukan.</div>';
+    return;
+  }
+
+  const isFriend = window._friends && window._friends[foundUid];
+  const sentReq = false; // TODO: check sent requests
+
+  resultsEl.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;">
+      <div style="font-size:28px;">${foundData.avatar||'🎭'}</div>
+      <div style="flex:1;">
+        <div style="font-family:'Boogaloo',cursive;font-size:15px;color:#fff;">${foundData.username}</div>
+        <div style="font-size:11px;color:var(--muted);">${foundData.playerCode||''} &nbsp;•&nbsp; ${foundData.online?'🟢 Online':'⚫ Offline'}</div>
+      </div>
+      ${isFriend
+        ? `<div style="font-size:11px;color:var(--teal);">✅ Teman</div>`
+        : `<button onclick="sendFriendRequest('${foundUid}','${foundData.username}')" style="background:linear-gradient(135deg,var(--purple),var(--cyan));border:none;border-radius:8px;padding:7px 14px;color:#fff;font-family:'Boogaloo',cursive;font-size:13px;cursor:pointer;">+ Tambah</button>`
+      }
+    </div>
+  `;
+}
+
+window.sendFriendRequest = async function(toUid, toName){
+  const me = window._fbUser;
+  if(!me) return;
+  // Send request to target
+  await set(ref(db,'friendRequests/'+toUid+'/'+me.uid), {
+    from: me.uid,
+    fromName: me.username,
+    fromAvatar: me.avatar||'🎭',
+    fromCode: me.playerCode||'',
+    status: 'pending',
+    createdAt: serverTimestamp(),
+  });
+  window.showToast('📨 Permintaan pertemanan dikirim ke '+toName+'!');
+  document.getElementById('searchResults').innerHTML = '<div style="color:var(--teal);font-size:13px;text-align:center;padding:10px;">✅ Permintaan terkirim!</div>';
+}
+
+window.respondFriendRequest = async function(fromUid, accept){
+  const me = window._fbUser;
+  if(!me) return;
+  if(accept){
+    // Add each other as friends
+    await set(ref(db,'friendships/'+me.uid+'/'+fromUid), {since: serverTimestamp()});
+    await set(ref(db,'friendships/'+fromUid+'/'+me.uid), {since: serverTimestamp()});
+    window.showToast('🎉 Kalian sekarang berteman!');
+  }
+  // Remove request
+  await set(ref(db,'friendRequests/'+me.uid+'/'+fromUid), null);
+  renderFriendRequests();
+}
+
+async function renderFriendRequests(){
+  const container = document.getElementById('friendRequestsBody');
+  if(!container) return;
+  const reqs = window._pendingRequests||[];
+  if(reqs.length===0){
+    container.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Tidak ada permintaan pertemanan.</div>';
+    return;
+  }
+  container.innerHTML = reqs.map(([uid,data])=>`
+    <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;margin-bottom:8px;">
+      <div style="font-size:26px;">${data.fromAvatar||'🎭'}</div>
+      <div style="flex:1;">
+        <div style="font-family:'Boogaloo',cursive;font-size:14px;color:#fff;">${data.fromName}</div>
+        <div style="font-size:11px;color:var(--muted);">${data.fromCode}</div>
+      </div>
+      <button onclick="respondFriendRequest('${uid}',true)" style="background:linear-gradient(135deg,#00d4aa,#00b894);border:none;border-radius:8px;padding:6px 12px;color:#0a1428;font-family:'Boogaloo',cursive;font-size:13px;cursor:pointer;margin-right:6px;">✓ Terima</button>
+      <button onclick="respondFriendRequest('${uid}',false)" style="background:rgba(233,69,96,0.2);border:1px solid rgba(233,69,96,0.4);border-radius:8px;padding:6px 12px;color:var(--red);font-family:'Boogaloo',cursive;font-size:13px;cursor:pointer;">✕</button>
+    </div>
+  `).join('');
+}
+
+async function renderFriendsList(friends){
+  const container = document.getElementById('friendsListBody');
+  if(!container) return;
+  const uids = Object.keys(friends||{});
+  if(uids.length===0){
+    container.innerHTML='<div style="color:var(--muted);font-size:13px;text-align:center;padding:20px;">Belum ada teman. Cari dan tambahkan teman!</div>';
+    return;
+  }
+  const rows = await Promise.all(uids.map(async uid=>{
+    const snap = await get(ref(db,'users/'+uid));
+    if(!snap.exists()) return '';
+    const d = snap.val();
+    return `
+      <div style="display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.04);border:1px solid rgba(255,255,255,0.08);border-radius:12px;padding:10px;margin-bottom:8px;">
+        <div style="font-size:26px;">${d.avatar||'🎭'}</div>
+        <div style="flex:1;">
+          <div style="font-family:'Boogaloo',cursive;font-size:14px;color:#fff;">${d.username}</div>
+          <div style="font-size:11px;color:${d.online?'#00d4aa':'var(--muted)'};">${d.online?'🟢 Online':'⚫ Offline'} &nbsp;•&nbsp; ${d.playerCode||''}</div>
+        </div>
+      </div>
+    `;
+  }));
+  container.innerHTML = rows.join('');
+}
+
+window.openFriendsPage = function(){
+  renderFriendRequests();
+  renderFriendsList(window._friends||{});
+  if(window.goTo) window.goTo('pageFriends');
+}
+window.renderFriendRequests = renderFriendRequests;
+window.renderFriendsList = renderFriendsList;
+
+// ===== AUTH STATE =====
+onAuthStateChanged(auth, async (user)=>{
+  if(user){
+    await loadUserFromDB(user.uid);
+    setOnlineStatus(user.uid, true);
+    window.addEventListener('beforeunload',()=>setOnlineStatus(user.uid, false));
+    // Hide auth page, show menu
+    document.getElementById('pageAuth')?.classList.remove('active');
+    document.getElementById('pageMenu')?.classList.add('active');
+    if(window.currentPage === undefined) window.currentPage = 'pageMenu';
+  } else {
+    // Show auth page
+    document.getElementById('pageMenu')?.classList.remove('active');
+    const authPage = document.getElementById('pageAuth');
+    if(authPage){
+      authPage.classList.add('active');
+      authPage.style.transform='translateX(0)';
+      authPage.style.opacity='1';
+      authPage.style.pointerEvents='all';
+    }
+  }
+});
+
+// ===== REGISTER =====
+window.doRegister = async function(){
+  const username = document.getElementById('regUsername').value.trim();
+  const email = document.getElementById('regEmail').value.trim();
+  const pass = document.getElementById('regPass').value;
+  const avatar = window._regAvatar||'🎭';
+  const errEl = document.getElementById('authError');
+
+  if(!username||username.length<3){ errEl.textContent='Username minimal 3 karakter!'; return; }
+  if(!/^[a-zA-Z0-9_]+$/.test(username)){ errEl.textContent='Username hanya boleh huruf, angka, underscore!'; return; }
+  if(!email||!pass||pass.length<6){ errEl.textContent='Password minimal 6 karakter!'; return; }
+
+  errEl.textContent='Mengecek username...';
+  if(await isUsernameTaken(username)){ errEl.textContent='Username sudah dipakai!'; return; }
+
+  errEl.textContent='Mendaftarkan akun...';
+  try{
+    const cred = await createUserWithEmailAndPassword(auth, email, pass);
+    const playerCode = genPlayerCode();
+    await updateProfile(cred.user, {displayName: username});
+    await saveUserToDB(cred.user.uid, username, playerCode, avatar);
+    errEl.textContent='';
+    window.showToast('🎉 Akun berhasil dibuat! Selamat datang, '+username+'!');
+  } catch(e){
+    if(e.code==='auth/email-already-in-use') errEl.textContent='Email sudah terdaftar!';
+    else errEl.textContent='Error: '+e.message;
+  }
+}
+
+// ===== LOGIN =====
+window.doLogin = async function(){
+  const email = document.getElementById('loginEmail').value.trim();
+  const pass = document.getElementById('loginPass').value;
+  const errEl = document.getElementById('authError');
+  if(!email||!pass){ errEl.textContent='Isi email dan password!'; return; }
+  errEl.textContent='Masuk...';
+  try{
+    await signInWithEmailAndPassword(auth, email, pass);
+    errEl.textContent='';
+  } catch(e){
+    if(e.code==='auth/invalid-credential'||e.code==='auth/wrong-password') errEl.textContent='Email atau password salah!';
+    else errEl.textContent='Error: '+e.message;
+  }
+}
+
+// ===== LOGOUT =====
+window.doLogout = async function(){
+  if(window._fbUser) setOnlineStatus(window._fbUser.uid, false);
+  await signOut(auth);
+  window.showToast('👋 Keluar dari akun');
+}
+
+// Switch auth tabs
+window.switchAuthTab = function(tab){
+  document.getElementById('tabLogin').classList.toggle('auth-tab-active', tab==='login');
+  document.getElementById('tabRegister').classList.toggle('auth-tab-active', tab==='register');
+  document.getElementById('formLogin').style.display = tab==='login'?'flex':'none';
+  document.getElementById('formRegister').style.display = tab==='register'?'flex':'none';
+  document.getElementById('authError').textContent='';
+}
+
+// Avatar picker for register
+window._regAvatar = '🎭';
+window.pickRegAvatar = function(em){
+  window._regAvatar = em;
+  document.getElementById('regAvatarPreview').textContent = em;
+  document.querySelectorAll('.reg-av-btn').forEach(b=>b.classList.toggle('selected', b.textContent===em));
+}
+
+// Override saveProfileFromModal to also save to Firebase
+const _origSaveProfileFromModal = window.saveProfileFromModal;
+window.saveProfileFromModal = async function(){
+  const name = document.getElementById('profileNameInput').value.trim()||'Player';
+  const avatar = document.getElementById('profileAvatarBig').textContent||'🎭';
+  const dn = document.getElementById('displayName');
+  const ab = document.getElementById('avatarBox');
+  if(dn) dn.textContent = name;
+  if(ab) ab.textContent = avatar;
+  saveProfile();
+  if(window._fbUser){
+    await saveProfileToFirebase({username: name, avatar});
+    // Update username index
+    if(window._fbUser.username !== name){
+      await set(ref(db,'usernames/'+window._fbUser.username.toLowerCase()), null);
+      await set(ref(db,'usernames/'+name.toLowerCase()), window._fbUser.uid);
+    }
+  }
+  document.getElementById('modalProfile').classList.remove('show');
+  window.showToast('✅ Profil disimpan!');
+}
+
+console.log('🔥 Firebase loaded!');
+
+// Expose Firebase DB functions to window so non-module scripts can use them
+window._db = db;
+window._db_ref = ref;
+window._db_set = set;
+window._db_get = get;
+window._db_update = update;
+window._db_onValue = onValue;
+</script>
 <style>
 :root {
   --bg: #060c1a;
@@ -1240,9 +1619,160 @@ input[type=range]::-webkit-slider-thumb{
   cursor:pointer;box-shadow:0 4px 14px rgba(245,197,24,0.35);transition:transform 0.15s;width:100%;
 }
 .btn-buy:active{transform:scale(0.96);}
+
+/* ===== AUTH PAGE ===== */
+#pageAuth{display:flex;flex-direction:column;align-items:center;justify-content:center;padding:20px;z-index:100;}
+.auth-box{
+  width:100%;max-width:380px;
+  background:rgba(10,20,40,0.95);
+  border:1px solid rgba(100,180,255,0.2);
+  border-radius:20px;padding:24px 20px;
+  box-shadow:0 20px 60px rgba(0,0,0,0.6);
+}
+.auth-logo{font-family:'Boogaloo',cursive;font-size:28px;color:var(--cyan);text-align:center;margin-bottom:4px;letter-spacing:2px;}
+.auth-sub{font-size:12px;color:var(--muted);text-align:center;margin-bottom:18px;}
+.auth-tabs{display:flex;gap:0;background:rgba(255,255,255,0.05);border-radius:10px;padding:3px;margin-bottom:18px;}
+.auth-tab{flex:1;text-align:center;padding:8px;font-family:'Boogaloo',cursive;font-size:15px;color:var(--muted);border-radius:8px;cursor:pointer;transition:all 0.2s;}
+.auth-tab-active{background:rgba(124,92,252,0.3);color:#fff;box-shadow:0 2px 8px rgba(124,92,252,0.3);}
+.auth-form{display:flex;flex-direction:column;gap:11px;}
+.auth-input{
+  background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
+  border-radius:10px;padding:11px 14px;color:#fff;font-size:14px;
+  font-family:'Outfit',sans-serif;outline:none;width:100%;
+  transition:border-color 0.2s;
+}
+.auth-input:focus{border-color:rgba(124,92,252,0.6);}
+.auth-input::placeholder{color:var(--muted);}
+.auth-btn{
+  background:linear-gradient(135deg,var(--purple),var(--cyan));
+  border:none;border-radius:12px;padding:13px;
+  color:#fff;font-family:'Boogaloo',cursive;font-size:18px;
+  cursor:pointer;box-shadow:0 4px 18px rgba(124,92,252,0.4);
+  transition:transform 0.15s;
+}
+.auth-btn:active{transform:scale(0.97);}
+.auth-error{font-size:12px;color:var(--red);text-align:center;min-height:16px;}
+.auth-avatar-pick{display:flex;flex-wrap:wrap;gap:6px;justify-content:center;margin-top:4px;}
+.reg-av-btn{
+  font-size:22px;width:38px;height:38px;border-radius:9px;
+  background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);
+  display:flex;align-items:center;justify-content:center;cursor:pointer;
+  transition:all 0.15s;
+}
+.reg-av-btn.selected{border-color:var(--purple);background:rgba(124,92,252,0.2);}
+.auth-avatar-label{font-size:12px;color:var(--muted);text-align:center;margin-bottom:4px;}
+.reg-avatar-preview-wrap{display:flex;align-items:center;gap:8px;justify-content:center;margin-bottom:4px;}
+.reg-avatar-big{font-size:36px;}
+
+/* ===== FRIENDS PAGE ===== */
+#pageFriends{display:flex;flex-direction:column;}
+.friends-topbar{
+  display:flex;align-items:center;gap:10px;padding:8px 14px;flex-shrink:0;
+  background:rgba(0,0,0,0.4);border-bottom:1px solid var(--border);backdrop-filter:blur(10px);
+}
+.friends-topbar-title{font-family:'Boogaloo',cursive;font-size:18px;color:var(--cyan);}
+.friends-tabs{display:flex;gap:6px;margin:10px 14px 0;}
+.ftab{
+  background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.1);
+  border-radius:8px;padding:6px 14px;font-size:12px;font-weight:700;color:var(--muted);
+  cursor:pointer;transition:all 0.15s;position:relative;
+}
+.ftab.active{background:rgba(0,212,255,0.15);border-color:rgba(0,212,255,0.4);color:var(--cyan);}
+.ftab:active{transform:scale(0.95);}
+.friends-body{flex:1;overflow-y:auto;padding:12px 14px;scrollbar-width:none;}
+.friends-body::-webkit-scrollbar{display:none;}
+.friend-search-wrap{display:flex;gap:8px;margin-bottom:14px;}
+.friend-search-input{
+  flex:1;background:rgba(255,255,255,0.06);border:1px solid rgba(255,255,255,0.12);
+  border-radius:10px;padding:10px 14px;color:#fff;font-size:14px;
+  font-family:'Outfit',sans-serif;outline:none;
+}
+.friend-search-input:focus{border-color:rgba(0,212,255,0.5);}
+.friend-search-input::placeholder{color:var(--muted);}
+.btn-search{
+  background:linear-gradient(135deg,var(--purple),var(--cyan));border:none;
+  border-radius:10px;padding:10px 16px;color:#fff;font-family:'Boogaloo',cursive;
+  font-size:15px;cursor:pointer;white-space:nowrap;
+}
+.friend-req-badge{
+  position:absolute;top:-5px;right:-5px;background:var(--red);border-radius:99px;
+  width:18px;height:18px;font-size:10px;font-weight:800;color:#fff;
+  display:none;align-items:center;justify-content:center;
+}
+.tb-friends{background:linear-gradient(135deg,#0066aa,#004488);color:#aaddff;}
 </style>
 </head>
 <body>
+
+<!-- ===== AUTH PAGE ===== -->
+<div class="page" id="pageAuth" style="z-index:200;">
+  <div class="auth-box">
+    <div class="auth-logo">🎯 TUTUP BOTOL</div>
+    <div class="auth-sub">Login atau daftar untuk main online</div>
+    <div class="auth-tabs">
+      <div class="auth-tab auth-tab-active" id="tabLogin" onclick="switchAuthTab('login')">Masuk</div>
+      <div class="auth-tab" id="tabRegister" onclick="switchAuthTab('register')">Daftar</div>
+    </div>
+
+    <!-- LOGIN FORM -->
+    <div class="auth-form" id="formLogin" style="display:flex;">
+      <input class="auth-input" id="loginEmail" type="email" placeholder="Email" autocomplete="email">
+      <input class="auth-input" id="loginPass" type="password" placeholder="Password" autocomplete="current-password">
+      <div class="auth-error" id="authError"></div>
+      <button class="auth-btn" onclick="doLogin()">Masuk 🎮</button>
+    </div>
+
+    <!-- REGISTER FORM -->
+    <div class="auth-form" id="formRegister" style="display:none;">
+      <div class="auth-avatar-label">Pilih avatar kamu:</div>
+      <div class="reg-avatar-preview-wrap">
+        <div class="reg-avatar-big" id="regAvatarPreview">🎭</div>
+      </div>
+      <div class="auth-avatar-pick">
+        ${['🎭','⚔️','🔥','💀','🌊','⚡','🌑','🦊','🐉','👑','🎯','💎','🌈','🦁','🐺','🤖','👻','🎮','🏆','💫'].map(em=>`<div class="reg-av-btn" onclick="pickRegAvatar('${em}')">${em}</div>`).join('')}
+      </div>
+      <input class="auth-input" id="regUsername" type="text" placeholder="Username (min 3 huruf/angka)" autocomplete="off" maxlength="20">
+      <input class="auth-input" id="regEmail" type="email" placeholder="Email" autocomplete="email">
+      <input class="auth-input" id="regPass" type="password" placeholder="Password (min 6 karakter)" autocomplete="new-password">
+      <button class="auth-btn" onclick="doRegister()">Daftar Sekarang 🚀</button>
+    </div>
+  </div>
+</div>
+
+<!-- ===== FRIENDS PAGE ===== -->
+<div class="page" id="pageFriends">
+  <div class="friends-topbar">
+    <button class="back-btn" onclick="goBack('pageFriends','pageMenu')">‹</button>
+    <div class="friends-topbar-title">👥 Teman</div>
+    <div style="margin-left:auto;font-size:11px;color:var(--muted);" id="myCodeDisplay"></div>
+  </div>
+  <div class="friends-tabs">
+    <div class="ftab active" id="ftabCari" onclick="switchFriendsTab('cari',this)">🔍 Cari</div>
+    <div class="ftab" id="ftabTeman" onclick="switchFriendsTab('teman',this)">👥 Teman</div>
+    <div class="ftab" id="ftabReq" onclick="switchFriendsTab('req',this)" style="position:relative;">
+      📬 Permintaan
+      <span class="friend-req-badge" id="friendReqBadge">0</span>
+    </div>
+  </div>
+  <div class="friends-body" id="friendsBody">
+    <!-- Cari tab -->
+    <div id="panelCari">
+      <div class="friend-search-wrap">
+        <input class="friend-search-input" id="friendSearchInput" placeholder="Username atau #KODE" oninput="" onkeydown="if(event.key==='Enter')searchPlayer()">
+        <button class="btn-search" onclick="searchPlayer()">Cari</button>
+      </div>
+      <div id="searchResults"></div>
+    </div>
+    <!-- Teman tab -->
+    <div id="panelTeman" style="display:none;">
+      <div id="friendsListBody"></div>
+    </div>
+    <!-- Permintaan tab -->
+    <div id="panelReq" style="display:none;">
+      <div id="friendRequestsBody"></div>
+    </div>
+  </div>
+</div>
 
 <!-- ===== BG ===== -->
 <div class="bg-wrap">
@@ -1266,7 +1796,7 @@ input[type=range]::-webkit-slider-thumb{
       <div class="avatar-edit-dot">✏️</div>
       <div>
         <div class="pname" id="displayName">Killers</div>
-        <div class="plevel">⚔️ Level 999</div>
+        <div class="plevel" id="playerCodeDisplay" style="color:var(--cyan);font-size:10px;">⚔️ Level 999</div>
       </div>
     </div>
 
@@ -1283,6 +1813,10 @@ input[type=range]::-webkit-slider-thumb{
       <button class="topbar-btn tb-spin" onclick="goTo('pageSpin')">SPIN</button>
       <button class="topbar-btn tb-toko" onclick="openTokoPage()">TOKO</button>
       <button class="topbar-btn tb-rank" onclick="openModal('rank')">RANK</button>
+      <button class="topbar-btn tb-friends" onclick="openFriendsPageSafe()" style="position:relative;">
+        👥
+        <span class="friend-req-badge" id="friendReqBadge" style="display:none;"></span>
+      </button>
     </div>
   </div>
 
@@ -1728,17 +2262,20 @@ function triggerAvatar(){document.getElementById('avatarInput').click();}
 
 // ===== PAGE NAV =====
 let currentPage='pageMenu';
+// Will be set to pageAuth by Firebase auth state if not logged in
 function goTo(to){
   document.getElementById(currentPage).classList.remove('active');
   currentPage=to;
   document.getElementById(to).classList.add('active');
   if(to==='pageSpin') initSpinPage();
 }
+window.goTo = goTo;
 function goBack(from,to){
   document.getElementById(from).classList.remove('active');
   currentPage=to;
   document.getElementById(to).classList.add('active');
 }
+window.goBack = goBack;
 
 // ===== MODALS =====
 const genDefs={
@@ -1784,16 +2321,162 @@ function stepSpeed(d){
 function createRoom(){
   const name=document.getElementById('roomName').value.trim()||'Room Seru';
   const mapRandom=document.getElementById('mapToggle').classList.contains('on');
-  setupLobby({name,code:roomCode,maxPlayers:playerCount,mapRandom,speed:speedList[speedIdx],isHost:true});
-  goTo('pageLobby');
+  const speed=speedList[speedIdx];
+  const code=roomCode;
+
+  if(!window._fbUser){ showToast('Login dulu!'); return; }
+
+  // Save room to Firebase
+  const me = window._fbUser;
+  const roomRef = window._db_ref(window._db, 'rooms/'+code);
+  window._db_set(roomRef, {
+    name, code, maxPlayers: playerCount,
+    mapRandom, speed,
+    hostUid: me.uid,
+    hostName: me.username,
+    status: 'waiting',
+    createdAt: Date.now(),
+    players: {
+      [me.uid]: {
+        uid: me.uid,
+        name: me.username,
+        avatar: me.avatar||'🎭',
+        playerCode: me.playerCode||'',
+        ready: false,
+        isHost: true,
+        joinedAt: Date.now(),
+      }
+    }
+  }).then(()=>{
+    window._currentRoomCode = code;
+    window._isHost = true;
+    setupLobby({name,code,maxPlayers:playerCount,mapRandom,speed,isHost:true});
+    goTo('pageLobby');
+    listenRoom(code);
+  }).catch(e=>showToast('Error buat room: '+e.message));
 }
 
-// ===== JOIN ROOM =====
 function joinRoom(){
-  const code=document.getElementById('joinCode').value.trim();
+  const code=document.getElementById('joinCode').value.trim().toUpperCase();
   if(code.length<4){showToast('Kode minimal 4 karakter!');return;}
-  setupLobby({name:'Room '+code,code,maxPlayers:4,mapRandom:true,speed:'Normal',isHost:false});
-  goTo('pageLobby');
+  if(!window._fbUser){ showToast('Login dulu!'); return; }
+
+  const me = window._fbUser;
+  // Check room exists in Firebase
+  window._db_get(window._db_ref(window._db,'rooms/'+code)).then(snap=>{
+    if(!snap.exists()){ showToast('❌ Room tidak ditemukan!'); return; }
+    const room = snap.val();
+    if(room.status==='playing'){ showToast('❌ Game sudah berjalan!'); return; }
+    const playerCount = Object.keys(room.players||{}).length;
+    if(playerCount >= room.maxPlayers){ showToast('❌ Room penuh!'); return; }
+
+    // Add me to room
+    window._db_set(
+      window._db_ref(window._db,'rooms/'+code+'/players/'+me.uid),
+      {
+        uid: me.uid,
+        name: me.username,
+        avatar: me.avatar||'🎭',
+        playerCode: me.playerCode||'',
+        ready: false,
+        isHost: false,
+        joinedAt: Date.now(),
+      }
+    ).then(()=>{
+      window._currentRoomCode = code;
+      window._isHost = false;
+      setupLobby({name:room.name,code,maxPlayers:room.maxPlayers,mapRandom:room.mapRandom,speed:room.speed,isHost:false});
+      goTo('pageLobby');
+      listenRoom(code);
+    });
+  }).catch(e=>showToast('Error masuk room: '+e.message));
+}
+
+// Listen to room changes in Firebase
+function listenRoom(code){
+  const r = window._db_ref(window._db,'rooms/'+code);
+  window._roomListener = window._db_onValue(r, snap=>{
+    if(!snap.exists()) return;
+    const room = snap.val();
+    const players = Object.values(room.players||{});
+
+    // Update player slots
+    const area = document.getElementById('playersArea');
+    if(!area) return;
+    area.innerHTML='';
+    const meUid = window._fbUser?.uid;
+
+    players.forEach((p,idx)=>{
+      area.appendChild(makeSlot({
+        name: p.name,
+        avatar: p.avatar||'🎭',
+        color: slotColors[idx%slotColors.length],
+        ready: p.ready,
+        isMe: p.uid===meUid,
+        isHost: p.isHost,
+        isEmpty: false,
+        idx
+      }));
+    });
+
+    // Fill empty slots
+    for(let i=players.length; i<room.maxPlayers; i++){
+      area.appendChild(makeEmptySlot(i));
+    }
+
+    // Update player count tag
+    const tag=document.getElementById('playerCountTag');
+    if(tag) tag.textContent=players.length+'/'+room.maxPlayers;
+
+    // If game started by host
+    if(room.status==='playing' && window._fbUser?.uid !== room.hostUid){
+      showToast('🎮 Game dimulai!');
+      startGame();
+    }
+  });
+}
+
+// Override toggleReady to sync to Firebase
+const _origToggleReady = window.toggleReady;
+window.toggleReady = function(){
+  isReady=!isReady;
+  const btn=document.getElementById('btnReady');
+  const myOuter=document.querySelector('#playersArea .slot-outer.me');
+  const myBadge=myOuter?myOuter.querySelector('.slot-badge'):null;
+  if(isReady){
+    btn.className='btn-ready is-ready';
+    btn.textContent='Siap!';
+    if(myOuter) myOuter.classList.add('ready');
+    if(myBadge){myBadge.className='slot-badge badge-ready';myBadge.textContent='SIAP';}
+  } else {
+    btn.className='btn-ready not-ready';
+    btn.textContent='Belum Siap';
+    if(myOuter) myOuter.classList.remove('ready');
+    if(myBadge){myBadge.className='slot-badge badge-wait';myBadge.textContent='BELUM';}
+    document.getElementById('btnStart').className='btn-start';
+  }
+  // Sync to Firebase
+  const code = window._currentRoomCode;
+  const uid = window._fbUser?.uid;
+  if(code&&uid){
+    window._db_update(window._db_ref(window._db,'rooms/'+code+'/players/'+uid),{ready:isReady});
+  }
+}
+
+// Leave lobby - cleanup Firebase
+const _origLeaveLobby = window.leaveLobby;
+window.leaveLobby = function(){
+  const code = window._currentRoomCode;
+  const uid = window._fbUser?.uid;
+  if(code&&uid){
+    window._db_set(window._db_ref(window._db,'rooms/'+code+'/players/'+uid), null);
+    // If host, delete whole room
+    if(window._isHost){
+      window._db_set(window._db_ref(window._db,'rooms/'+code), null);
+    }
+  }
+  isReady=false; botCount=0;
+  goBack('pageLobby','pageMenu');
 }
 
 // ===== LOBBY =====
@@ -1825,15 +2508,17 @@ function setupLobby(opt){
 function renderSlots(max, isHost){
   const area=document.getElementById('playersArea');
   area.innerHTML='';
+  const myName = window._fbUser?.username || document.getElementById('displayName')?.textContent || 'Player';
+  const myAvatar = window._fbUser?.avatar || document.getElementById('avatarBox')?.textContent || '🎭';
 
   // Slot 0 = me
   area.appendChild(makeSlot({
-    name:'Killers',color:slotColors[0],
+    name: myName, avatar: myAvatar, color:slotColors[0],
     ready:false,isMe:true,isHost:isHost,isEmpty:false,idx:0
   }));
 
   if(!isHost){
-    area.appendChild(makeSlot({name:'🏠 Host',color:slotColors[1],ready:true,isMe:false,isHost:true,isEmpty:false,idx:1}));
+    area.appendChild(makeSlot({name:'🏠 Host',avatar:'👑',color:slotColors[1],ready:true,isMe:false,isHost:true,isEmpty:false,idx:1}));
   }
 
   const start=isHost?1:2;
@@ -1858,7 +2543,7 @@ function makeSlot(p){
       <div class="slot-card ${cardClass}">
         ${p.isHost?'<div class="slot-host-crown">👑</div>':''}
         <div class="slot-avatar-wrap">
-          <span style="font-size:${p.isMe?'24':'22'}px">${p.isMe?'🎭':'🤖'}</span>
+          <span style="font-size:${p.isMe?'24':'22'}px">${p.avatar || (p.isMe?'🎭':'🤖')}</span>
         </div>
         <div class="slot-name">${p.name}</div>
         <div class="slot-badge ${badgeClass}">${badgeText}</div>
@@ -1943,10 +2628,16 @@ function leaveLobby(){
 }
 
 function startGame(){
-  // Pass equipped skin gradient via localStorage
   const sk=skins[equippedSkinId]||skins[0];
   localStorage.setItem('tb_p1skin', JSON.stringify({g:sk.g, name:sk.name, bh:sk.bh||false}));
-  window.location.href='bottlecap-game.html';
+  // If host, set room status to playing so all players get redirected
+  const code = window._currentRoomCode;
+  if(code && window._isHost && window._db_update){
+    window._db_update(window._db_ref(window._db,'rooms/'+code),{status:'playing'})
+      .then(()=>{ window.location.href='bottlecap-game.html'; });
+  } else {
+    window.location.href='bottlecap-game.html';
+  }
 }
 // ===== VAULT =====
 const ALL_SKINS=[
@@ -2260,10 +2951,12 @@ function saveProfileFromModal(){
   showToast('✅ Profil disimpan!');
 }
 
-// Load profile on start
+// Load profile on start - hanya sebagai fallback sementara, Firebase akan override
 const _savedProfile=loadProfile();
 if(_savedProfile) applyProfile(_savedProfile);
-else saveProfile(); // Save default on first run
+else saveProfile();
+// Catatan: applyFirebaseProfile() dipanggil oleh onAuthStateChanged setelah Firebase load,
+// sehingga nama dari Firebase akan selalu override nama dari localStorage
 
 // ===== DIAMOND & SPIN SYSTEM =====
 
@@ -2679,6 +3372,24 @@ function showToast(msg){
   t.textContent=msg; t.classList.add('show');
   clearTimeout(t._t);
   t._t=setTimeout(()=>t.classList.remove('show'),2200);
+}
+
+// ===== FRIENDS PAGE HELPERS =====
+window.openFriendsPageSafe = function(){
+  const myCode = window._fbUser?.playerCode||'';
+  const el = document.getElementById('myCodeDisplay');
+  if(el) el.textContent = 'Kode kamu: '+myCode;
+  window.openFriendsPage();
+}
+
+window.switchFriendsTab = function(tab, el){
+  document.querySelectorAll('.ftab').forEach(t=>t.classList.remove('active'));
+  el.classList.add('active');
+  document.getElementById('panelCari').style.display = tab==='cari'?'block':'none';
+  document.getElementById('panelTeman').style.display = tab==='teman'?'block':'none';
+  document.getElementById('panelReq').style.display = tab==='req'?'block':'none';
+  if(tab==='req' && window.renderFriendRequests) window.renderFriendRequests();
+  if(tab==='teman' && window.renderFriendsList) window.renderFriendsList(window._friends||{});
 }
 </script>
 </body>
