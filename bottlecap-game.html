@@ -121,6 +121,20 @@ canvas{display:block;position:fixed;top:0;left:0;touch-action:none;}
       <div class="mdbtn-title">Mode 2 — Ganti Map</div>
       <div class="mdbtn-desc">Map berganti otomatis tiap ronde. Menang = kill terbanyak.</div>
     </div>
+    <div class="mdbtn" id="md3" onclick="selMode(3)">
+      <div class="mdbtn-title">⚔️ Deathmatch</div>
+      <div class="mdbtn-desc">Race kill dalam waktu! Respawn terus, menang = kill terbanyak saat waktu habis.</div>
+    </div>
+  </div>
+  <!-- Deathmatch duration picker (hidden by default) -->
+  <div id="dmRow" style="display:none;max-width:380px;width:100%">
+    <div class="msl">Durasi Deathmatch</div>
+    <div class="pcrow" id="dmTimeRow">
+      <div class="pct" data-s="120" onclick="selDM(this)">2m</div>
+      <div class="pct sel" data-s="300" onclick="selDM(this)">5m</div>
+      <div class="pct" data-s="600" onclick="selDM(this)">10m</div>
+      <div class="pct" data-s="900" onclick="selDM(this)">15m</div>
+    </div>
   </div>
   <div class="msl" style="max-width:380px;width:100%">Jumlah Ronde & Pemain</div>
   <div style="display:flex;gap:12px;flex-wrap:wrap;max-width:380px;width:100%">
@@ -234,7 +248,7 @@ const MAPS=[
 // ===== STATE =====
 let players=[],obs=[],parts=[],portals=[];
 let curP=0,running=false,moving=false;
-let selMaps=['forest'],nP=2,gameMode=1,totalRounds=1;
+let selMaps=['forest'],nP=2,gameMode=1,totalRounds=1,dmDuration=300; // dmDuration in seconds
 let curRound=0,roundKills=[],totalKills=[];
 let customNames=Array(6).fill('');
 let af=null,wTimer=null;
@@ -243,7 +257,9 @@ let drag=false,ds=null,dc2=null;
 let curMapId='forest';
 let mazeWalls=[];
 // Map special state
-let mapSpecial={gravity:false, icePhysics:false, lavaTimer:0, windX:0, stormTimer:0};
+let mapSpecial={icePhysics:false, lavaTimer:0, windX:0, stormTimer:0};
+let dmTimer=0, dmInterval=null; // deathmatch
+let movingObs=[]; // space moving asteroids
 
 // Load P1 skin from lobby
 let p1skin=null;
@@ -286,6 +302,15 @@ function selMode(m){
   gameMode=m;
   document.getElementById('md1').classList.toggle('sel',m===1);
   document.getElementById('md2').classList.toggle('sel',m===2);
+  document.getElementById('md3').classList.toggle('sel',m===3);
+  document.getElementById('dmRow').style.display=m===3?'block':'none';
+  // Hide round selector for deathmatch
+  document.getElementById('roundRow').parentElement.style.display=m===3?'none':'block';
+}
+function selDM(el){
+  dmDuration=parseInt(el.dataset.s);
+  document.querySelectorAll('#dmTimeRow .pct').forEach(x=>x.classList.remove('sel'));
+  el.classList.add('sel');
 }
 function selN(el){nP=parseInt(el.dataset.n);document.querySelectorAll('.pcrow .pct').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');buildNameInputs();}
 function selRound(el){totalRounds=parseInt(el.dataset.n);document.querySelectorAll('#roundRow .pct').forEach(x=>x.classList.remove('sel'));el.classList.add('sel');}
@@ -320,17 +345,22 @@ function startGame(){
   document.getElementById('minimap').style.display='block';
   document.getElementById('win').classList.remove('show');
   if(wTimer){clearInterval(wTimer);wTimer=null;}
+  if(dmInterval){clearInterval(dmInterval);dmInterval=null;}
 
   curRound=0;
   totalKills=Array(nP).fill(0);
   roundKills=Array(nP).fill(0);
 
   // Pick maps for each round
-  if(gameMode===1){
+  if(gameMode===3){
+    // Deathmatch: single map, timed
+    selectedRoundMaps=[selMaps[0]||'forest'];
+    totalRounds=1;
+    dmTimer=dmDuration;
+  } else if(gameMode===1){
     const m=selMaps[0]||'forest';
     selectedRoundMaps=Array(totalRounds).fill(m);
   } else {
-    // Shuffle selected maps across rounds
     selectedRoundMaps=[];
     for(let r=0;r<totalRounds;r++)selectedRoundMaps.push(selMaps[r%selMaps.length]);
   }
@@ -357,15 +387,52 @@ function beginRound(){
   if(curMapId==='deathdg') spawnPortals();
 
   // Init map special mechanics
-  mapSpecial={gravity:false,icePhysics:false,lavaTimer:0,windX:0,stormTimer:0};
-  if(curMapId==='snow'||curMapId==='jungle') mapSpecial.icePhysics=true; // slippery/momentum
-  if(curMapId==='sky') mapSpecial.windX=(Math.random()>.5?1:-1)*0.04; // wind
-  if(curMapId==='volcano') mapSpecial.lavaTimer=0; // lava eruption timer
-  if(curMapId==='space') mapSpecial.gravity=true; // low gravity
-  if(curMapId==='deepSea') mapSpecial.drag=true; // water drag
-  if(curMapId==='desert') mapSpecial.sandstorm=0; // sandstorm visibility
+  mapSpecial={icePhysics:false,lavaTimer:0,windX:0,stormTimer:0};
+  movingObs=[];
+  if(curMapId==='snow'||curMapId==='jungle') mapSpecial.icePhysics=true;
+  if(curMapId==='sky') mapSpecial.windX=(Math.random()>.5?1:-1)*0.04;
+  if(curMapId==='volcano') mapSpecial.lavaTimer=0;
+  if(curMapId==='deepSea') mapSpecial.drag=true;
+  if(curMapId==='space'){
+    // Keunikan Angkasa: asteroid bergerak melayang
+    for(let i=0;i<8;i++){
+      const a=Math.random()*Math.PI*2, spd=0.6+Math.random()*1.2;
+      movingObs.push({
+        x:WW*.1+Math.random()*WW*.8, y:WH*.1+Math.random()*WH*.8,
+        vx:Math.cos(a)*spd, vy:Math.sin(a)*spd,
+        r:20+Math.random()*25, tp:'asteroid', rot:Math.random()*Math.PI*2, rotSpd:(Math.random()-.5)*0.03
+      });
+    }
+  }
+  if(curMapId==='dungeon'){
+    // Keunikan Dungeon: lampu obor berkedip (visual state)
+    mapSpecial.torchFlicker=0;
+  }
+  if(curMapId==='house'){
+    // Keunikan Rumah: gelap, hanya area sekitar pemain terang
+    mapSpecial.darkRoom=true;
+  }
+  if(curMapId==='kingdom'){
+    // Keunikan Kerajaan: area terlarang (zona tengah = zona kematian otomatis)
+    mapSpecial.deathZone=true;
+  }
 
   buildHUD();running=true;moving=false;curP=0;
+
+  // Deathmatch timer
+  if(gameMode===3){
+    dmTimer=dmDuration;
+    updHUD();
+    dmInterval=setInterval(()=>{
+      dmTimer--;
+      updHUD();
+      if(dmTimer<=0){
+        clearInterval(dmInterval);dmInterval=null;
+        endDeathmatch();
+      }
+    },1000);
+  }
+
   showTA();if(af)cancelAnimationFrame(af);loop();
 }
 
@@ -722,10 +789,9 @@ function phys(){
 
   // Map special: friction/bounce modifiers
   let fr=FR, bo=BO;
-  if(mapSpecial.icePhysics){fr=0.985;bo=0.75;} // snow/jungle: slippery
-  if(mapSpecial.drag){fr=0.945;bo=0.45;}        // deep sea: sluggish
-  if(mapSpecial.gravity){ap.vy+=0.015;}          // space: micro gravity pull down
-  if(mapSpecial.windX){ap.vx+=mapSpecial.windX;} // sky: wind drift
+  if(mapSpecial.icePhysics){fr=0.985;bo=0.75;}
+  if(mapSpecial.drag){fr=0.945;bo=0.45;}
+  if(mapSpecial.windX){ap.vx+=mapSpecial.windX;}
 
   if(Math.hypot(ap.vx,ap.vy)<SS&&moving){ap.vx=0;ap.vy=0;moving=false;ap.trail=[];nextT();return;}
   ap.vx*=fr;ap.vy*=fr;ap.x+=ap.vx;ap.y+=ap.vy;
@@ -754,6 +820,33 @@ function phys(){
       const fl=document.getElementById('tpFlash');fl.classList.add('flash');setTimeout(()=>fl.classList.remove('flash'),200);
     }});
   }
+  // Moving asteroids collision (space map)
+  movingObs.forEach(mo=>{
+    mo.x+=mo.vx; mo.y+=mo.vy; mo.rot+=mo.rotSpd;
+    if(mo.x<0||mo.x>WW) mo.vx*=-1;
+    if(mo.y<0||mo.y>WH) mo.vy*=-1;
+    const dx=ap.x-mo.x,dy=ap.y-mo.y,d=Math.hypot(dx,dy),md=BR+mo.r*.85;
+    if(d<md&&d>0){
+      const nx=dx/d,ny=dy/d;ap.x=mo.x+nx*md;ap.y=mo.y+ny*md;
+      const dot=ap.vx*nx+ap.vy*ny;
+      ap.vx=(ap.vx-2*dot*nx)*bo; ap.vy=(ap.vy-2*dot*ny)*bo;
+      spB(ap.x,ap.y,ap.color); playSound('bounce');
+    }
+  });
+
+  // Kingdom death zone (center area)
+  if(mapSpecial.deathZone){
+    const zx=WW/2,zy=WH/2,zr=120;
+    if(Math.hypot(ap.x-zx,ap.y-zy)<zr){
+      // Push out of zone
+      const dx=ap.x-zx,dy=ap.y-zy,d=Math.hypot(dx,dy)||1;
+      ap.vx+=(dx/d)*1.5; ap.vy+=(dy/d)*1.5;
+      spB(ap.x,ap.y,'#ff4400');
+    }
+  }
+
+  // House dark room: no special physics, just visual
+
   // Kill check
   for(const p of players){
     if(p===ap||!p.alive)continue;
@@ -766,16 +859,25 @@ function phys(){
         spP(p.x,p.y,p.color,22);playSound('kill');
       }
       showKP(p,ap);updHUD();
-      const alive=players.filter(x=>x.alive);
-      if(alive.length<=1){setTimeout(()=>endRound(alive[0]||ap),700);return;}
-      // Respawn killed player at random spot
-      setTimeout(()=>{
-        p.alive=true;
-        p.x=WW*.1+Math.random()*WW*.8;p.y=WH*.1+Math.random()*WH*.8;
-        p.vx=0;p.vy=0;p.trail=[];
-        spP(p.x,p.y,p.color,10);
-      },1500);
-      setTimeout(()=>{ap.vx=0;ap.vy=0;moving=false;ap.trail=[];showTA();},350);
+
+      if(gameMode===3){
+        // Deathmatch: always respawn quickly, no round end
+        setTimeout(()=>{
+          p.alive=true;
+          p.x=WW*.1+Math.random()*WW*.8;p.y=WH*.1+Math.random()*WH*.8;
+          p.vx=0;p.vy=0;p.trail=[];spP(p.x,p.y,p.color,10);
+        },1200);
+        setTimeout(()=>{ap.vx=0;ap.vy=0;moving=false;ap.trail=[];showTA();},350);
+      } else {
+        const alive=players.filter(x=>x.alive);
+        if(alive.length<=1){setTimeout(()=>endRound(alive[0]||ap),700);return;}
+        setTimeout(()=>{
+          p.alive=true;
+          p.x=WW*.1+Math.random()*WW*.8;p.y=WH*.1+Math.random()*WH*.8;
+          p.vx=0;p.vy=0;p.trail=[];spP(p.x,p.y,p.color,10);
+        },1500);
+        setTimeout(()=>{ap.vx=0;ap.vy=0;moving=false;ap.trail=[];showTA();},350);
+      }
     }
   }
 }
@@ -799,6 +901,12 @@ function endRound(lastAlive){
       if(t<=0){clearInterval(cd);el.classList.remove('show');beginRound();}
     },1000);
   }
+}
+
+function endDeathmatch(){
+  running=false;
+  playSound('roundend');
+  showFinalWin();
 }
 
 function showFinalWin(){
@@ -870,18 +978,64 @@ function buildHUD(){
   const c=document.getElementById('hplayers');c.innerHTML='';
   players.forEach((p,i)=>{const d=document.createElement('div');d.className='hud-p'+(i===curP?' active':'')+(p.alive?'':' dead');d.id='hpd'+i;d.style.setProperty('--pc',p.color);d.innerHTML=`<div class="hud-dot"></div><span>${p.name.replace('Player ','P')}</span><span class="hud-k">${totalKills[i]||0}</span>`;c.appendChild(d);});
 }
-function updHUD(){players.forEach((p,i)=>{const el=document.getElementById('hpd'+i);if(!el)return;el.className='hud-p'+(i===curP?' active':'')+(p.alive?'':' dead');el.querySelector('.hud-k').textContent=totalKills[i]||0;});const p=players[curP];document.getElementById('hturn')||0;document.getElementById('hround').textContent=`Ronde ${curRound}/${totalRounds} · ${p?p.name:''}`;}
-
+function updHUD(){
+  players.forEach((p,i)=>{const el=document.getElementById('hpd'+i);if(!el)return;el.className='hud-p'+(i===curP?' active':'')+(p.alive?'':' dead');el.querySelector('.hud-k').textContent=totalKills[i]||0;});
+  const p=players[curP];
+  if(gameMode===3){
+    const m=Math.floor(dmTimer/60), s=dmTimer%60;
+    document.getElementById('hround').textContent=`⚔️ DM · ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} · ${p?p.name:''}`;
+    // Red timer when under 30s
+    document.getElementById('hround').style.color=dmTimer<=30?'#e94560':'rgba(255,255,255,0.6)';
+  } else {
+    document.getElementById('hround').textContent=`Ronde ${curRound}/${totalRounds} · ${p?p.name:''}`;
+    document.getElementById('hround').style.color='rgba(255,255,255,0.6)';
+  }
+}
 // ===== LOOP =====
 function loop(){
   ctx.save();ctx.translate(-Math.round(cx),-Math.round(cy));
   drawBG();drawPortals();
   obs.forEach(o=>drawO(o));
+  // Moving asteroids (space)
+  movingObs.forEach(mo=>{
+    ctx.save();ctx.translate(mo.x,mo.y);ctx.rotate(mo.rot);drawO({...mo,x:0,y:0});ctx.restore();
+  });
   // Maze walls
   if(curMapId==='maze'){ctx.fillStyle='rgba(80,80,160,0.7)';mazeWalls.forEach(w=>{ctx.beginPath();ctx.roundRect(w.x,w.y,w.w,w.h,3);ctx.fill();});}
+  // Kingdom death zone
+  if(mapSpecial.deathZone){
+    const t=Date.now()*.002;
+    ctx.save();
+    const dg=ctx.createRadialGradient(WW/2,WH/2,0,WW/2,WH/2,130);
+    dg.addColorStop(0,`rgba(255,50,0,${0.15+0.08*Math.sin(t*3)})`);
+    dg.addColorStop(0.7,`rgba(255,50,0,${0.06+0.04*Math.sin(t*2)})`);
+    dg.addColorStop(1,'transparent');
+    ctx.fillStyle=dg;ctx.beginPath();ctx.arc(WW/2,WH/2,130,0,Math.PI*2);ctx.fill();
+    ctx.strokeStyle=`rgba(255,80,0,${0.4+0.2*Math.sin(t*4)})`;ctx.lineWidth=3;
+    ctx.setLineDash([8,6]);ctx.beginPath();ctx.arc(WW/2,WH/2,120,0,Math.PI*2);ctx.stroke();ctx.setLineDash([]);
+    ctx.fillStyle=`rgba(255,100,0,${0.5+0.3*Math.sin(t*3)})`;ctx.font='bold 11px Outfit';ctx.textAlign='center';
+    ctx.fillText('⚠️ ZONA MAUT',WW/2,WH/2+5);ctx.textAlign='left';
+    ctx.restore();
+  }
   if(moving)phys();updP();drwP();
   players.forEach((p,i)=>{if(p.alive)drawPl(p,i===curP);});
-  // Map special overlays (world-space)
+  // House: darkness vignette, only player area is lit
+  if(mapSpecial.darkRoom){
+    const ap=players[curP];
+    if(ap&&ap.alive){
+      ctx.save();
+      // Full dark overlay
+      ctx.fillStyle='rgba(0,0,0,0.72)';ctx.fillRect(0,0,WW,WH);
+      // Light circle around active player
+      const lg=ctx.createRadialGradient(ap.x,ap.y,0,ap.x,ap.y,200);
+      lg.addColorStop(0,'rgba(0,0,0,0)');lg.addColorStop(0.6,'rgba(0,0,0,0)');
+      lg.addColorStop(1,'rgba(0,0,0,0.72)');
+      ctx.globalCompositeOperation='destination-out';
+      ctx.fillStyle='rgba(255,255,255,0.72)';ctx.beginPath();ctx.arc(ap.x,ap.y,200,0,Math.PI*2);ctx.fill();
+      ctx.globalCompositeOperation='source-over';
+      ctx.restore();
+    }
+  }
   drawMapOverlay();
   ctx.restore();
 
@@ -926,32 +1080,30 @@ function drawMapOverlay(){
   }
 }
 
-// Screen-space HUD elements per map
 function drawMapHUD(){
-  // Sky: wind direction indicator
   if(curMapId==='sky'&&mapSpecial.windX){
-    ctx.save();
-    ctx.fillStyle='rgba(255,255,255,0.6)';ctx.font='bold 11px Outfit';
-    ctx.fillText(mapSpecial.windX>0?'💨 Angin →':'← Angin 💨',wc.width/2-40,wc.height-18);
-    ctx.restore();
+    ctx.save();ctx.fillStyle='rgba(255,255,255,0.55)';ctx.font='bold 11px Outfit';
+    ctx.fillText(mapSpecial.windX>0?'💨 Angin →':'← Angin 💨',wc.width/2-40,wc.height-18);ctx.restore();
   }
-  // Snow/jungle: slippery indicator
   if(mapSpecial.icePhysics){
-    ctx.save();ctx.fillStyle='rgba(200,230,255,0.6)';ctx.font='bold 11px Outfit';
-    ctx.fillText(curMapId==='snow'?'❄️ Licin!':'🌿 Pantul Ekstra!',wc.width/2-40,wc.height-18);
-    ctx.restore();
+    ctx.save();ctx.fillStyle='rgba(200,230,255,0.55)';ctx.font='bold 11px Outfit';
+    ctx.fillText(curMapId==='snow'?'❄️ Licin!':'🌿 Pantul Ekstra!',wc.width/2-40,wc.height-18);ctx.restore();
   }
-  // Space: low gravity
-  if(mapSpecial.gravity){
-    ctx.save();ctx.fillStyle='rgba(180,150,255,0.5)';ctx.font='bold 11px Outfit';
-    ctx.fillText('🌌 Gravitasi Rendah',wc.width/2-55,wc.height-18);
-    ctx.restore();
-  }
-  // Deep sea: slow
   if(mapSpecial.drag){
     ctx.save();ctx.fillStyle='rgba(0,200,255,0.5)';ctx.font='bold 11px Outfit';
-    ctx.fillText('🌊 Hambatan Air',wc.width/2-45,wc.height-18);
-    ctx.restore();
+    ctx.fillText('🌊 Hambatan Air',wc.width/2-45,wc.height-18);ctx.restore();
+  }
+  if(curMapId==='space'&&movingObs.length){
+    ctx.save();ctx.fillStyle='rgba(180,150,255,0.5)';ctx.font='bold 11px Outfit';
+    ctx.fillText('🌌 Asteroid Bergerak!',wc.width/2-55,wc.height-18);ctx.restore();
+  }
+  if(mapSpecial.deathZone){
+    ctx.save();ctx.fillStyle='rgba(255,100,0,0.55)';ctx.font='bold 11px Outfit';
+    ctx.fillText('⚠️ Pusat = Zona Maut',wc.width/2-55,wc.height-18);ctx.restore();
+  }
+  if(mapSpecial.darkRoom){
+    ctx.save();ctx.fillStyle='rgba(255,220,100,0.5)';ctx.font='bold 11px Outfit';
+    ctx.fillText('🕯️ Ruangan Gelap',wc.width/2-45,wc.height-18);ctx.restore();
   }
 }
 
