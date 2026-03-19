@@ -2073,6 +2073,8 @@ let spinIndex = 0;
 let removedPrizes = new Set();
 let removeConfirmed = false;
 let currentEventIdx = 0;
+// Track obtained prizes per event so they deplete
+let obtainedPrizeIds = {0:new Set(), 1:new Set(), 2:new Set()};
 
 const BH_SKIN = {name:'Black Hole',g:'radial-gradient(circle at 35% 30%,#6600cc,#220044 30%,#000 60%,#000)',bh:true};
 const LIGHTNING_SKIN = {name:'Halilintar',g:'radial-gradient(circle at 35% 30%,#ffffaa,#ffe000 40%,#ff8800 70%,#cc4400)'};
@@ -2180,22 +2182,26 @@ function selectSpinEvent(idx){
 
 function renderPrizeGrid(){
   const ev=SPIN_EVENTS[currentEventIdx];
+  const obtained=obtainedPrizeIds[currentEventIdx]||(obtainedPrizeIds[currentEventIdx]=new Set());
   const grid=document.getElementById('prizeGrid');
   if(!grid) return;
   grid.innerHTML='';
   ev.prizes.forEach((p,i)=>{
+    const isObtained=p.type==='skin'&&obtained.has(p.id);
     const cell=document.createElement('div');
-    cell.className='prize-cell'+(p.grand?' grand':'')+(removedPrizes.has(i)&&removeConfirmed?' removed':'');
+    cell.className='prize-cell'+(p.grand?' grand':'')+(removedPrizes.has(i)&&removeConfirmed?' removed':'')+(isObtained?' obtained-prize':'');
     cell.id='pc-'+i;
     let visual;
     if(p.type==='skin'&&p.skin){
-      visual=`<div class="prize-ball-icon${p.isBH?' ball-blackhole':''}" style="background:${p.skin.g}"></div>`;
+      visual=`<div class="prize-ball-icon${p.isBH?' ball-blackhole':''}" style="background:${p.skin.g}${isObtained?';opacity:0.5':''}"></div>`;
     } else {
       visual=`<div class="prize-icon">${p.icon||'?'}</div>`;
     }
-    const canRemove=!removeConfirmed&&!p.grand;
+    const canRemove=!removeConfirmed&&!p.grand&&!isObtained;
     const isMarked=removedPrizes.has(i);
-    cell.innerHTML=`${visual}<div class="prize-name">${p.name}</div>${p.qty?`<div class="prize-qty">${p.qty}</div>`:''}${canRemove?`<div class="prize-remove-btn${isMarked?' active-rm':''}" onclick="toggleRemove(${i},event)">✕</div>`:''}`;
+    const obtainedBadge=isObtained?`<div style="position:absolute;top:2px;left:0;right:0;text-align:center;font-family:'Boogaloo',cursive;font-size:9px;color:#00d4aa;background:rgba(0,212,170,0.15);border-radius:4px;padding:1px 3px;">✓ DIDAPAT</div>`:'';
+    cell.style.position='relative';
+    cell.innerHTML=`${obtainedBadge}${visual}<div class="prize-name">${p.name}</div>${p.qty?`<div class="prize-qty">${p.qty}</div>`:''}${canRemove?`<div class="prize-remove-btn${isMarked?' active-rm':''}" onclick="toggleRemove(${i},event)">✕</div>`:''}`;
     grid.appendChild(cell);
   });
   document.getElementById('removeCount').textContent=removedPrizes.size;
@@ -2236,11 +2242,22 @@ function doSpin(times){
   renderSpinCost();
 
   const ev=SPIN_EVENTS[currentEventIdx];
-  const pool=ev.prizes.filter((_,i)=>!(removedPrizes.has(i)&&removeConfirmed));
+  const obtained=obtainedPrizeIds[currentEventIdx]||(obtainedPrizeIds[currentEventIdx]=new Set());
+  // Pool: exclude removed and already-obtained (except grand which can always appear)
+  const pool=ev.prizes.filter((p,i)=>{
+    if(removedPrizes.has(i)&&removeConfirmed) return false;
+    if(p.grand) return true; // grand always in pool
+    // Repeatable items (diamond/gold/spin) can repeat; skin/unique deplete
+    if(p.type==='skin') return !obtained.has(p.id);
+    return true; // gold/diamond/spin always available
+  });
+  if(!pool.length){showToast('Semua hadiah unik sudah didapat!');return;}
   const isGrandWin=Math.random()<0.05;
   let won;
   if(isGrandWin) won=ev.prizes[0];
   else { const nonGrand=pool.filter(p=>!p.grand); won=nonGrand[Math.floor(Math.random()*nonGrand.length)]||pool[0]; }
+  // Mark as obtained if it's a skin
+  if(won.type==='skin') obtained.add(won.id);
 
   // Flash winning cell
   document.querySelectorAll('.prize-cell').forEach(c=>c.classList.remove('winning'));
@@ -2304,12 +2321,13 @@ function closeSpinResult(){
 // ===== TOKO =====
 const TOKO_DATA = {
   skin: [
-    {id:'t-s0',name:'Black Hole',type:'skin',g:'radial-gradient(circle at 35% 30%,#6600cc,#220044 30%,#000 60%,#000)',price:300,currency:'diamond',owned:false,featured:true,desc:'Skin legendaris eksklusif toko'},
     {id:'t-s1',name:'Magma',type:'skin',g:'radial-gradient(circle at 35% 30%,#ffcc80,#ff6f00 40%,#8b2500 75%,#3d0f00)',price:800,currency:'gold',owned:false,desc:'Panas membara'},
     {id:'t-s2',name:'Aurora',type:'skin',g:'radial-gradient(circle at 35% 30%,#b3fff0,#00e5cc 40%,#006666 75%,#001a1a)',price:150,currency:'diamond',owned:false,desc:'Cahaya utara'},
     {id:'t-s3',name:'Shadow',type:'skin',g:'radial-gradient(circle at 35% 30%,#5a5a5a,#2d2d2d 40%,#111 75%,#000)',price:600,currency:'gold',owned:false,desc:'Kegelapan murni'},
     {id:'t-s4',name:'Rose',type:'skin',g:'radial-gradient(circle at 35% 30%,#ffb3d9,#e91e8c 40%,#8b0050 75%,#3d0025)',price:100,currency:'diamond',owned:false,desc:'Cantik dan mematikan'},
     {id:'t-s5',name:'Toxic',type:'skin',g:'radial-gradient(circle at 35% 30%,#d4ffb3,#7ed321 40%,#3d7a00 75%,#1a3500)',price:500,currency:'gold',owned:false,desc:'Beracun tapi keren'},
+    {id:'t-s6',name:'Neon',type:'skin',g:'radial-gradient(circle at 35% 30%,#aaff00,#44ff88 40%,#00aa44 75%,#003322)',price:200,currency:'diamond',owned:false,desc:'Menyala di gelap'},
+    {id:'t-s-bh',name:'Black Hole 🌑',type:'skin',g:'radial-gradient(circle at 35% 30%,#6600cc,#220044 30%,#000 60%,#000)',price:0,currency:'diamond',owned:false,limited:true,spinOnly:true,bh:true,desc:'⚡ LIMITED — Hanya dari Spin Emperor Treasure!'},
   ],
   border: [
     {id:'t-b0',name:'Api Biru',type:'border',icon:'🔵',price:200,currency:'diamond',owned:false,featured:true,desc:'Border api biru misterius'},
@@ -2378,24 +2396,29 @@ function renderTokoItem(item){
   const priceClass = item.currency === 'diamond' ? 'diamond' : item.currency === 'gold' ? 'gold' : 'free';
   const priceIcon = item.currency === 'diamond' ? '💎' : '💰';
   const previewClass = isSkin ? '' : item.type === 'border' ? 'border-preview' : 'effect-preview';
-  const previewContent = isSkin
-    ? `style="background:${item.g}"`
-    : `style="background:none">${item.icon}<`;
 
   let visual;
   if(isSkin){
-    visual = `<div class="toko-item-preview" style="background:${item.g}"></div>`;
+    const bhClass = item.bh ? ' ball-blackhole' : '';
+    visual = `<div class="toko-item-preview${bhClass}" style="background:${item.g}"></div>`;
   } else {
     visual = `<div class="toko-item-preview ${previewClass}">${item.icon}</div>`;
   }
 
+  const isLimited = item.spinOnly || item.limited;
+  const clickHandler = isLimited ? `onclick="showToast('⚡ Item ini hanya bisa didapat dari Spin! Coba keberuntunganmu.')"` : `onclick="openBuyModal('${item.id}','${item.type}')"`;
+
   return `
-    <div class="toko-item${item.owned?' owned':''}${item.featured?' featured':''}" onclick="openBuyModal('${item.id}','${item.type}')">
-      ${item.featured?'<div class="toko-featured-badge">HOT</div>':''}
+    <div class="toko-item${item.owned?' owned':''}${item.featured?' featured':''}${isLimited?' limited-item':''}" ${clickHandler} style="${isLimited?'border-color:rgba(255,200,0,0.3);':''}">
+      ${item.featured&&!isLimited?'<div class="toko-featured-badge">HOT</div>':''}
+      ${isLimited?'<div class="toko-featured-badge" style="background:linear-gradient(135deg,#ff8800,#cc4400);">LIMITED</div>':''}
       ${item.owned?'<div class="toko-owned-badge">DIMILIKI</div>':''}
       ${visual}
       <div class="toko-item-name">${item.name}</div>
-      <div class="toko-item-price ${priceClass}">${priceIcon} ${item.price}</div>
+      ${isLimited
+        ? `<div class="toko-item-price" style="color:rgba(255,200,0,0.8);font-size:9px;">✦ Spin Only</div>`
+        : `<div class="toko-item-price ${priceClass}">${priceIcon} ${item.price}</div>`
+      }
     </div>
   `;
 }
