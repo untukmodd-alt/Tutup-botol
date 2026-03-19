@@ -344,6 +344,19 @@ window.switchAuthTab = function(tab){
   document.getElementById('authError').textContent='';
 }
 
+// Build avatar picker buttons
+const _regAvatars = ['🎭','⚔️','🔥','💀','🌊','⚡','🌑','🦊','🐉','👑','🎯','💎','🌈','🦁','🐺','🤖','👻','🎮','🏆','💫'];
+const _avPickEl = document.getElementById('regAvatarPick');
+if(_avPickEl){
+  _regAvatars.forEach(em=>{
+    const btn = document.createElement('div');
+    btn.className = 'reg-av-btn';
+    btn.textContent = em;
+    btn.onclick = ()=> window.pickRegAvatar(em);
+    _avPickEl.appendChild(btn);
+  });
+}
+
 // Avatar picker for register
 window._regAvatar = '🎭';
 window.pickRegAvatar = function(em){
@@ -1728,9 +1741,7 @@ input[type=range]::-webkit-slider-thumb{
       <div class="reg-avatar-preview-wrap">
         <div class="reg-avatar-big" id="regAvatarPreview">🎭</div>
       </div>
-      <div class="auth-avatar-pick">
-        ${['🎭','⚔️','🔥','💀','🌊','⚡','🌑','🦊','🐉','👑','🎯','💎','🌈','🦁','🐺','🤖','👻','🎮','🏆','💫'].map(em=>`<div class="reg-av-btn" onclick="pickRegAvatar('${em}')">${em}</div>`).join('')}
-      </div>
+      <div class="auth-avatar-pick" id="regAvatarPick"></div>
       <input class="auth-input" id="regUsername" type="text" placeholder="Username (min 3 huruf/angka)" autocomplete="off" maxlength="20">
       <input class="auth-input" id="regEmail" type="email" placeholder="Email" autocomplete="email">
       <input class="auth-input" id="regPass" type="password" placeholder="Password (min 6 karakter)" autocomplete="new-password">
