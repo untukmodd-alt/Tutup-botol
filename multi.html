@@ -1,0 +1,613 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0,maximum-scale=1.0,user-scalable=no">
+<title>Tutup Botol — Online</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/peerjs/1.5.2/peerjs.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=Boogaloo&family=Outfit:wght@500;700;800&display=swap" rel="stylesheet">
+<style>
+*{margin:0;padding:0;box-sizing:border-box;-webkit-tap-highlight-color:transparent;user-select:none;-webkit-user-select:none;}
+html,body{width:100%;height:100%;overflow:hidden;background:#0a0814;font-family:'Outfit',sans-serif;color:#fff;}
+
+/* ===== PAGES ===== */
+.page{display:none;position:fixed;inset:0;flex-direction:column;align-items:center;justify-content:center;padding:16px;overflow-y:auto;}
+.page.active{display:flex;}
+
+/* ===== PROFILE PAGE ===== */
+#pageProfile{background:radial-gradient(ellipse at 30% 20%,#1a0840,#0a0814);}
+.profile-avatar-big{font-size:64px;width:100px;height:100px;border-radius:50%;background:rgba(255,255,255,0.06);border:2px solid rgba(124,92,252,0.5);display:flex;align-items:center;justify-content:center;cursor:pointer;transition:transform 0.15s;}
+.profile-avatar-big:active{transform:scale(0.93);}
+.avatar-grid{display:flex;flex-wrap:wrap;gap:8px;justify-content:center;max-width:300px;margin-top:8px;}
+.av-btn{font-size:28px;width:48px;height:48px;border-radius:10px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.12s;}
+.av-btn.sel{background:rgba(124,92,252,0.3);border-color:#7c5cfc;}
+.av-btn:active{transform:scale(0.9);}
+.inp{width:100%;max-width:280px;background:rgba(255,255,255,0.07);border:1.5px solid rgba(255,255,255,0.12);border-radius:12px;padding:12px 16px;color:#fff;font-family:'Boogaloo',cursive;font-size:20px;outline:none;text-align:center;}
+.inp:focus{border-color:#7c5cfc;}
+.inp::placeholder{color:rgba(255,255,255,0.25);}
+.btn-primary{background:linear-gradient(135deg,#7c5cfc,#5a3fcf);border:none;border-radius:14px;padding:14px 36px;color:#fff;font-family:'Boogaloo',cursive;font-size:20px;cursor:pointer;box-shadow:0 6px 20px rgba(124,92,252,0.4);width:100%;max-width:280px;}
+.btn-primary:active{transform:scale(0.96);}
+.btn-secondary{background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.12);border-radius:14px;padding:12px 28px;color:#fff;font-family:'Boogaloo',cursive;font-size:17px;cursor:pointer;width:100%;max-width:280px;}
+.btn-secondary:active{transform:scale(0.96);}
+.lbl{font-size:10px;color:rgba(255,255,255,0.35);font-weight:700;text-transform:uppercase;letter-spacing:1px;align-self:flex-start;margin-left:calc(50% - 140px);}
+.device-id-box{background:rgba(255,255,255,0.04);border-radius:8px;padding:6px 12px;max-width:280px;width:100%;text-align:center;}
+.device-id-txt{font-family:monospace;font-size:11px;color:rgba(124,92,252,0.7);}
+
+/* ===== MAIN MENU ===== */
+#pageMenu{background:radial-gradient(ellipse at 50% 0%,#1a0840,#0a0814);}
+.menu-profile-card{display:flex;align-items:center;gap:12px;background:rgba(255,255,255,0.05);border:1.5px solid rgba(255,255,255,0.08);border-radius:16px;padding:12px 16px;width:100%;max-width:320px;cursor:pointer;}
+.menu-profile-card:active{background:rgba(255,255,255,0.09);}
+.menu-av{font-size:36px;width:54px;height:54px;border-radius:50%;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;}
+.menu-name{font-family:'Boogaloo',cursive;font-size:22px;}
+.menu-devid{font-size:10px;color:rgba(255,255,255,0.3);font-family:monospace;}
+.menu-btns{display:flex;flex-direction:column;gap:10px;width:100%;max-width:320px;margin-top:8px;}
+.menu-btn{border:none;border-radius:14px;padding:16px;color:#fff;font-family:'Boogaloo',cursive;font-size:20px;cursor:pointer;display:flex;align-items:center;gap:10px;width:100%;}
+.menu-btn:active{transform:scale(0.97);}
+.btn-create{background:linear-gradient(135deg,#00b894,#00cec9);}
+.btn-join{background:linear-gradient(135deg,#e94560,#c0392b);}
+.btn-solo{background:linear-gradient(135deg,#6c5ce7,#4a3fcf);}
+.btn-back-menu{background:rgba(255,255,255,0.07);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;padding:8px 16px;color:rgba(255,255,255,0.6);font-family:'Boogaloo',cursive;font-size:14px;cursor:pointer;margin-top:4px;max-width:320px;width:100%;}
+
+/* ===== LOBBY ===== */
+#pageLobby{background:radial-gradient(ellipse at 50% 0%,#0a1a30,#0a0814);padding:0;}
+.lobby-top{background:rgba(0,0,0,0.4);backdrop-filter:blur(10px);padding:10px 14px;display:flex;align-items:center;gap:10px;border-bottom:1px solid rgba(255,255,255,0.07);}
+.lobby-back{background:none;border:none;color:#fff;font-size:20px;cursor:pointer;padding:4px 8px;}
+.lobby-title{font-family:'Boogaloo',cursive;font-size:18px;flex:1;}
+.room-code-badge{background:rgba(124,92,252,0.2);border:1.5px solid rgba(124,92,252,0.4);border-radius:8px;padding:4px 10px;font-family:'Boogaloo',cursive;font-size:16px;color:#c4b0ff;cursor:pointer;}
+.lobby-body{flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;width:100%;}
+.section-title{font-size:10px;color:rgba(255,255,255,0.35);font-weight:700;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;}
+/* Players list */
+.player-slot{display:flex;align-items:center;gap:10px;background:rgba(255,255,255,0.05);border:1.5px solid rgba(255,255,255,0.08);border-radius:12px;padding:10px 14px;}
+.player-slot.host-slot{border-color:rgba(255,200,0,0.3);}
+.slot-av{font-size:26px;width:42px;height:42px;border-radius:50%;background:rgba(255,255,255,0.06);display:flex;align-items:center;justify-content:center;flex-shrink:0;}
+.slot-name{font-family:'Boogaloo',cursive;font-size:16px;flex:1;}
+.slot-badge{font-size:10px;padding:2px 8px;border-radius:99px;font-weight:700;}
+.badge-host{background:rgba(255,200,0,0.15);color:#ffd700;}
+.badge-ready{background:rgba(0,212,170,0.15);color:#00d4aa;}
+.badge-waiting{background:rgba(255,255,255,0.08);color:rgba(255,255,255,0.4);}
+.empty-slot{border:1.5px dashed rgba(255,255,255,0.1);border-radius:12px;padding:10px 14px;text-align:center;font-size:12px;color:rgba(255,255,255,0.2);}
+/* Chat */
+.chat-box{background:rgba(0,0,0,0.3);border:1.5px solid rgba(255,255,255,0.07);border-radius:12px;height:130px;overflow-y:auto;padding:8px 10px;display:flex;flex-direction:column;gap:4px;scrollbar-width:none;}
+.chat-box::-webkit-scrollbar{display:none;}
+.chat-msg{font-size:12px;line-height:1.4;}
+.chat-msg .cm-name{font-family:'Boogaloo',cursive;font-size:13px;}
+.chat-msg .cm-text{color:rgba(255,255,255,0.7);}
+.chat-input-row{display:flex;gap:6px;}
+.chat-inp{flex:1;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);border-radius:10px;padding:8px 12px;color:#fff;font-family:'Outfit',sans-serif;font-size:13px;outline:none;}
+.chat-inp::placeholder{color:rgba(255,255,255,0.2);}
+.chat-send{background:rgba(124,92,252,0.3);border:none;border-radius:10px;padding:8px 14px;color:#c4b0ff;font-size:16px;cursor:pointer;}
+/* Lobby bottom */
+.lobby-bottom{padding:10px 14px;background:rgba(0,0,0,0.4);backdrop-filter:blur(10px);border-top:1px solid rgba(255,255,255,0.07);display:flex;gap:8px;}
+.btn-ready{flex:1;border:none;border-radius:12px;padding:13px;font-family:'Boogaloo',cursive;font-size:18px;cursor:pointer;background:linear-gradient(135deg,#00b894,#00cec9);color:#fff;}
+.btn-ready.ready-state{background:rgba(0,212,170,0.15);border:1.5px solid #00d4aa;color:#00d4aa;}
+.btn-start{flex:1;border:none;border-radius:12px;padding:13px;font-family:'Boogaloo',cursive;font-size:18px;cursor:pointer;background:linear-gradient(135deg,#e94560,#c0392b);color:#fff;}
+.btn-start:disabled{opacity:0.4;cursor:not-allowed;}
+
+/* ===== JOIN PAGE ===== */
+#pageJoin{background:radial-gradient(ellipse at 50% 0%,#1a0820,#0a0814);}
+.code-inp{width:100%;max-width:280px;background:rgba(255,255,255,0.07);border:2px solid rgba(255,255,255,0.15);border-radius:14px;padding:16px;color:#fff;font-family:'Boogaloo',cursive;font-size:32px;outline:none;text-align:center;letter-spacing:6px;}
+.code-inp:focus{border-color:#7c5cfc;}
+.code-inp::placeholder{color:rgba(255,255,255,0.2);letter-spacing:2px;}
+
+/* ===== CONNECTING ===== */
+#pageConnecting{background:#0a0814;}
+.conn-spinner{width:50px;height:50px;border:3px solid rgba(124,92,252,0.2);border-top-color:#7c5cfc;border-radius:50%;animation:spin 0.8s linear infinite;margin-bottom:14px;}
+@keyframes spin{to{transform:rotate(360deg)}}
+.conn-title{font-family:'Boogaloo',cursive;font-size:22px;margin-bottom:6px;}
+.conn-sub{font-size:13px;color:rgba(255,255,255,0.4);}
+
+/* ===== TOAST ===== */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%);background:rgba(30,20,50,0.95);border:1px solid rgba(124,92,252,0.3);border-radius:10px;padding:10px 18px;font-size:13px;color:#fff;z-index:9999;opacity:0;transition:opacity 0.25s;white-space:nowrap;pointer-events:none;}
+#toast.show{opacity:1;}
+
+/* ===== UTILS ===== */
+.gap-8{gap:8px;}
+.gap-12{gap:12px;}
+.gap-16{gap:16px;}
+.mt-4{margin-top:4px;}
+.mt-8{margin-top:8px;}
+.w-full{width:100%;}
+.max-280{max-width:280px;}
+.txt-center{text-align:center;}
+.txt-muted{color:rgba(255,255,255,0.4);font-size:13px;}
+h1.logo{font-family:'Boogaloo',cursive;font-size:36px;background:linear-gradient(135deg,#7c5cfc,#00d4aa);-webkit-background-clip:text;-webkit-text-fill-color:transparent;background-clip:text;}
+</style>
+</head>
+<body>
+
+<!-- ===== PAGE: PROFILE SETUP ===== -->
+<div class="page active" id="pageProfile">
+  <h1 class="logo">Tutup Botol</h1>
+  <p class="txt-muted mt-4">Buat profilmu dulu!</p>
+
+  <div style="display:flex;flex-direction:column;align-items:center;gap:14px;width:100%;margin-top:20px;">
+    <div class="profile-avatar-big" id="profAvBig" onclick="toggleAvGrid()">🎭</div>
+    <div class="avatar-grid" id="avGrid" style="display:none;"></div>
+
+    <div class="lbl">Nama Kamu</div>
+    <input class="inp" id="profNameInp" type="text" maxlength="14" placeholder="Nama pemain...">
+
+    <div class="device-id-box">
+      <div style="font-size:9px;color:rgba(255,255,255,0.25);margin-bottom:2px;">ID Device (unik per HP)</div>
+      <div class="device-id-txt" id="profDevId"></div>
+    </div>
+
+    <button class="btn-primary" onclick="saveProfileAndGo()">Lanjut →</button>
+  </div>
+</div>
+
+<!-- ===== PAGE: MAIN MENU ===== -->
+<div class="page" id="pageMenu">
+  <div class="menu-profile-card" onclick="goTo('pageProfile')">
+    <div class="menu-av" id="menuAv">🎭</div>
+    <div>
+      <div class="menu-name" id="menuName">Player</div>
+      <div class="menu-devid" id="menuDevId"></div>
+    </div>
+    <div style="margin-left:auto;font-size:12px;color:rgba(255,255,255,0.3);">✏️ Edit</div>
+  </div>
+
+  <div class="menu-btns">
+    <button class="menu-btn btn-create" onclick="createRoom()">
+      🏠 Buat Room
+    </button>
+    <button class="menu-btn btn-join" onclick="goTo('pageJoin')">
+      🔗 Join Room
+    </button>
+    <button class="menu-btn btn-solo" onclick="goSolo()">
+      🎮 Main Sendiri
+    </button>
+  </div>
+  <button class="btn-back-menu" onclick="window.location.href='index.html'">‹ Kembali ke Lobby</button>
+</div>
+
+<!-- ===== PAGE: CONNECTING ===== -->
+<div class="page" id="pageConnecting">
+  <div class="conn-spinner"></div>
+  <div class="conn-title" id="connTitle">Menghubungkan...</div>
+  <div class="conn-sub" id="connSub">Mohon tunggu</div>
+  <button class="btn-secondary mt-8" style="max-width:200px" onclick="cancelConnect()">Batal</button>
+</div>
+
+<!-- ===== PAGE: JOIN ===== -->
+<div class="page" id="pageJoin">
+  <h1 class="logo" style="font-size:26px">Join Room</h1>
+  <p class="txt-muted mt-4">Minta kode dari host</p>
+  <div style="display:flex;flex-direction:column;align-items:center;gap:14px;width:100%;margin-top:20px;">
+    <input class="code-inp" id="joinCodeInp" type="text" maxlength="6" placeholder="XXXXXX" oninput="this.value=this.value.toUpperCase()">
+    <button class="btn-primary" onclick="joinRoom()">Masuk →</button>
+    <button class="btn-secondary" onclick="goTo('pageMenu')">‹ Kembali</button>
+  </div>
+</div>
+
+<!-- ===== PAGE: LOBBY ===== -->
+<div class="page" id="pageLobby" style="padding:0;justify-content:flex-start;">
+  <div class="lobby-top">
+    <button class="lobby-back" onclick="leaveLobby()">‹</button>
+    <div class="lobby-title" id="lobbyTitle">Room</div>
+    <div class="room-code-badge" id="roomCodeBadge" onclick="copyRoomCode()">------</div>
+  </div>
+
+  <div class="lobby-body" id="lobbyBody">
+    <!-- Players section -->
+    <div>
+      <div class="section-title">Pemain (tap untuk siap)</div>
+      <div id="playerSlots" style="display:flex;flex-direction:column;gap:6px;"></div>
+    </div>
+
+    <!-- Chat section -->
+    <div>
+      <div class="section-title">Chat</div>
+      <div class="chat-box" id="chatBox"></div>
+      <div class="chat-input-row mt-4">
+        <input class="chat-inp" id="chatInp" type="text" maxlength="60" placeholder="Tulis pesan..." onkeydown="if(event.key==='Enter')sendChat()">
+        <button class="chat-send" onclick="sendChat()">➤</button>
+      </div>
+    </div>
+
+    <!-- Game settings (host only) -->
+    <div id="hostSettings" style="display:none;">
+      <div class="section-title">Pengaturan (Host)</div>
+      <div style="display:flex;gap:8px;flex-wrap:wrap;">
+        <div style="background:rgba(255,255,255,0.05);border-radius:10px;padding:10px 14px;flex:1;min-width:120px;">
+          <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-bottom:6px;">MAP</div>
+          <select id="mapSelect" style="background:transparent;border:none;color:#fff;font-family:'Boogaloo',cursive;font-size:15px;width:100%;outline:none;" onchange="broadcastSettings()">
+            <option value="forest">🌲 Hutan</option>
+            <option value="space">🌌 Angkasa</option>
+            <option value="water">🌊 Laut</option>
+            <option value="ground">🏜️ Tanah</option>
+            <option value="swamp">🐍 Rawa</option>
+            <option value="dungeon">⚔️ Dungeon</option>
+            <option value="sky">☁️ Langit</option>
+            <option value="snow">❄️ Salju</option>
+            <option value="desert">🌵 Gurun</option>
+            <option value="deathdg">💀 Dungeon Kematian</option>
+            <option value="jungle">🌿 Hutan Belantara</option>
+            <option value="kingdom">👑 Kerajaan</option>
+            <option value="volcano">🌋 Gunung Berapi</option>
+            <option value="deepSea">🐙 Bawah Laut</option>
+            <option value="random">🎲 Acak</option>
+          </select>
+        </div>
+        <div style="background:rgba(255,255,255,0.05);border-radius:10px;padding:10px 14px;flex:1;min-width:120px;">
+          <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-bottom:6px;">RONDE</div>
+          <select id="roundSelect" style="background:transparent;border:none;color:#fff;font-family:'Boogaloo',cursive;font-size:15px;width:100%;outline:none;" onchange="broadcastSettings()">
+            <option value="1">1 Ronde</option>
+            <option value="2">2 Ronde</option>
+            <option value="3">3 Ronde</option>
+            <option value="5">5 Ronde</option>
+          </select>
+        </div>
+      </div>
+    </div>
+
+    <!-- Guest settings view -->
+    <div id="guestSettings" style="display:none;background:rgba(255,255,255,0.04);border-radius:10px;padding:10px 14px;">
+      <div style="font-size:10px;color:rgba(255,255,255,0.35);margin-bottom:4px;">PENGATURAN HOST</div>
+      <div id="guestSettingsTxt" style="font-family:'Boogaloo',cursive;font-size:15px;color:rgba(255,255,255,0.7);">Menunggu host...</div>
+    </div>
+  </div>
+
+  <div class="lobby-bottom">
+    <button class="btn-ready" id="btnReady" onclick="toggleReady()">Siap!</button>
+    <button class="btn-start" id="btnStart" onclick="startOnlineGame()" style="display:none;">Mulai! ▶</button>
+  </div>
+</div>
+
+<div id="toast"></div>
+
+<script>
+// ===== AVATARS & PROFILE =====
+const AVATARS=['🎭','⚔️','🔥','💀','🌊','⚡','🌑','🦊','🐉','👑','🎯','💎','🌈','🦁','🐺','🤖','👻','🎮','🏆','💫','🌸','🍀'];
+let myProfile={name:'Player',avatar:'🎭',deviceId:''};
+let selectedAvatar='🎭';
+
+function genDevId(){
+  let id=localStorage.getItem('tb_dev_id');
+  if(!id){id='TB-'+Date.now().toString(36).toUpperCase()+'-'+Math.random().toString(36).slice(2,6).toUpperCase();localStorage.setItem('tb_dev_id',id);}
+  return id;
+}
+
+function loadProfile(){
+  myProfile.deviceId=genDevId();
+  document.getElementById('profDevId').textContent=myProfile.deviceId;
+  document.getElementById('menuDevId').textContent=myProfile.deviceId;
+  try{
+    const s=localStorage.getItem('tb_profile_v2');
+    if(s){
+      const p=JSON.parse(s);
+      myProfile.name=p.name||'Player';
+      myProfile.avatar=p.avatar||'🎭';
+      selectedAvatar=myProfile.avatar;
+      document.getElementById('profAvBig').textContent=myProfile.avatar;
+      document.getElementById('profNameInp').value=myProfile.name;
+      updateMenuProfile();
+      return true; // profile exists, skip setup
+    }
+  }catch(e){}
+  return false;
+}
+
+function saveProfileAndGo(){
+  const name=document.getElementById('profNameInp').value.trim()||'Player';
+  myProfile.name=name;
+  myProfile.avatar=selectedAvatar;
+  localStorage.setItem('tb_profile_v2',JSON.stringify({name:myProfile.name,avatar:myProfile.avatar}));
+  updateMenuProfile();
+  goTo('pageMenu');
+}
+
+function updateMenuProfile(){
+  document.getElementById('menuAv').textContent=myProfile.avatar;
+  document.getElementById('menuName').textContent=myProfile.name;
+  document.getElementById('menuDevId').textContent=myProfile.deviceId.slice(0,16)+'...';
+}
+
+function buildAvGrid(){
+  const g=document.getElementById('avGrid');g.innerHTML='';
+  AVATARS.forEach(em=>{
+    const b=document.createElement('div');b.className='av-btn'+(em===selectedAvatar?' sel':'');
+    b.textContent=em;
+    b.onclick=()=>{selectedAvatar=em;document.getElementById('profAvBig').textContent=em;document.querySelectorAll('.av-btn').forEach(x=>x.classList.toggle('sel',x.textContent===em));};
+    g.appendChild(b);
+  });
+}
+let avGridOpen=false;
+function toggleAvGrid(){
+  avGridOpen=!avGridOpen;
+  const g=document.getElementById('avGrid');
+  if(avGridOpen){buildAvGrid();g.style.display='flex';}else g.style.display='none';
+}
+
+// ===== PAGES =====
+function goTo(id){document.querySelectorAll('.page').forEach(p=>{p.classList.toggle('active',p.id===id);});}
+let currentPage='pageProfile';
+
+// ===== PEERJS =====
+let peer=null,hostConn=null,guestConns={};
+let isHost=false,roomId='',myPeerId='';
+let players={},myReady=false;
+let gameSettings={map:'forest',rounds:1};
+
+function initPeer(cb){
+  showConnecting('Menghubungkan ke server...');
+  // Use random peer ID
+  peer=new Peer(undefined,{debug:0});
+  peer.on('open',id=>{myPeerId=id;cb(id);});
+  peer.on('error',e=>{toast('❌ Error: '+e.type);goTo('pageMenu');});
+}
+
+// ===== CREATE ROOM =====
+function createRoom(){
+  initPeer(id=>{
+    isHost=true;
+    // Generate 6-char room code (last 6 of peer ID)
+    roomId=id.replace(/-/g,'').toUpperCase().slice(-6);
+    while(roomId.length<6)roomId='A'+roomId;
+    roomId=roomId.slice(0,6);
+
+    // Add self
+    players[myPeerId]={name:myProfile.name,avatar:myProfile.avatar,deviceId:myProfile.deviceId,peerId:myPeerId,ready:false,isHost:true};
+
+    peer.on('connection',conn=>{
+      const pid=conn.peer;
+      guestConns[pid]=conn;
+      conn.on('open',()=>{
+        // Send current state to new joiner
+        conn.send({type:'welcome',players,roomId,settings:gameSettings,hostPeerId:myPeerId});
+      });
+      conn.on('data',d=>handleData(d,pid));
+      conn.on('close',()=>{
+        delete players[pid];delete guestConns[pid];
+        broadcastAll({type:'playerLeft',peerId:pid});
+        renderLobby();
+      });
+    });
+
+    goTo('pageLobby');
+    setupLobbyUI();
+    renderLobby();
+    toast('✅ Room dibuat! Kode: '+roomId);
+  });
+}
+
+// ===== JOIN ROOM =====
+function joinRoom(){
+  const code=document.getElementById('joinCodeInp').value.trim().toUpperCase();
+  if(code.length<4){toast('Kode minimal 4 karakter');return;}
+
+  initPeer(myId=>{
+    showConnecting('Mencari room '+code+'...','Menghubungkan ke host');
+    // Find host by code — host's peer ID ends with the code
+    // We'll try connecting to common formats
+    tryJoinWithCode(code);
+  });
+}
+
+function tryJoinWithCode(code){
+  // The host broadcasts their full peer ID via code mapping
+  // Simple approach: host peer ID contains the code at the end
+  // We need to find host peer ID — use a relay approach with the code
+  // Since PeerJS public server doesn't have room listing, we use a trick:
+  // Host peer ID is stored by code via localStorage (same device) or
+  // guests need the FULL peer ID. We'll show full peer ID as the code.
+
+  // Actually: show the full peer ID as the room "code" (or first 8 chars)
+  // This is the most reliable P2P approach without a signaling server
+
+  toast('Mencoba konek...');
+  // Try to connect using code as a peer ID prefix search
+  // We'll use the code directly as a partial peer ID
+  // Host's peer ID will be shown in lobby
+
+  // For simplicity, show full peer ID as the shareable code
+  const conn=peer.connect(code, {reliable:true});
+  hostConn=conn;
+  conn.on('open',()=>{
+    isHost=false;
+    conn.send({type:'join',name:myProfile.name,avatar:myProfile.avatar,deviceId:myProfile.deviceId,peerId:myPeerId});
+  });
+  conn.on('data',d=>handleData(d,code));
+  conn.on('error',e=>{toast('❌ Tidak bisa konek. Cek kode!');goTo('pageJoin');});
+  conn.on('close',()=>{toast('❌ Koneksi terputus');goTo('pageMenu');});
+  setTimeout(()=>{if(!document.getElementById('pageLobby').classList.contains('active')){}},5000);
+}
+
+// ===== DATA HANDLER =====
+function handleData(data,fromId){
+  switch(data.type){
+    case'welcome':
+      players=data.players;roomId=data.roomId;gameSettings=data.settings||{map:'forest',rounds:1};
+      players[myPeerId]={name:myProfile.name,avatar:myProfile.avatar,deviceId:myProfile.deviceId,peerId:myPeerId,ready:false,isHost:false};
+      hostConn.send({type:'join',name:myProfile.name,avatar:myProfile.avatar,deviceId:myProfile.deviceId,peerId:myPeerId});
+      goTo('pageLobby');setupLobbyUI();renderLobby();
+      addChat('🔗','System','Berhasil bergabung ke room!');
+      break;
+    case'join':
+      players[fromId]={name:data.name,avatar:data.avatar,deviceId:data.deviceId,peerId:fromId,ready:false,isHost:false};
+      broadcastAll({type:'playerUpdate',players});
+      renderLobby();
+      addChat('👋','System',data.name+' bergabung!');
+      broadcastAll({type:'chat',sender:'System',text:data.name+' bergabung!',av:'👋'});
+      break;
+    case'playerUpdate':
+      players=data.players;renderLobby();break;
+    case'playerLeft':
+      delete players[data.peerId];renderLobby();
+      addChat('👋','System','Pemain keluar');break;
+    case'ready':
+      if(players[fromId])players[fromId].ready=data.ready;
+      if(isHost)broadcastAll({type:'playerUpdate',players});
+      renderLobby();break;
+    case'settings':
+      gameSettings=data.settings;updateGuestSettings();break;
+    case'chat':
+      addChat(data.av,data.sender,data.text);break;
+    case'startGame':
+      gameSettings=data.settings;
+      startGameNow(data.playerOrder,data.settings);break;
+    // In-game sync
+    case'move':
+      applyRemoteMove(data);break;
+    case'gameState':
+      applyGameState(data);break;
+  }
+}
+
+// ===== LOBBY UI =====
+function setupLobbyUI(){
+  document.getElementById('roomCodeBadge').textContent=isHost?myPeerId.slice(-8):roomId;
+  document.getElementById('lobbyTitle').textContent=isHost?'Room (Host)':'Room (Tamu)';
+  document.getElementById('hostSettings').style.display=isHost?'block':'none';
+  document.getElementById('guestSettings').style.display=isHost?'none':'block';
+  document.getElementById('btnStart').style.display=isHost?'flex':'none';
+  if(isHost) document.getElementById('btnReady').style.display='none';
+}
+
+function renderLobby(){
+  const slots=document.getElementById('playerSlots');
+  slots.innerHTML='';
+  const list=Object.values(players);
+  const maxP=6;
+  list.forEach(p=>{
+    const isMe=p.peerId===myPeerId;
+    const el=document.createElement('div');
+    el.className='player-slot'+(p.isHost?' host-slot':'');
+    el.innerHTML=`
+      <div class="slot-av">${p.avatar||'🎭'}</div>
+      <div>
+        <div class="slot-name">${p.name}${isMe?' (Kamu)':''}</div>
+        <div style="font-size:11px;color:rgba(255,255,255,0.3);font-family:monospace">${(p.deviceId||'').slice(0,12)}...</div>
+      </div>
+      <span class="slot-badge ${p.isHost?'badge-host':p.ready?'badge-ready':'badge-waiting'}">${p.isHost?'👑 Host':p.ready?'✓ Siap':'Menunggu'}</span>`;
+    slots.appendChild(el);
+  });
+  // Empty slots
+  for(let i=list.length;i<maxP;i++){
+    const el=document.createElement('div');el.className='empty-slot';
+    el.textContent='Menunggu pemain...';slots.appendChild(el);
+  }
+  // Start button state (host only, all ready)
+  if(isHost){
+    const guests=list.filter(p=>!p.isHost);
+    const allReady=guests.length>0&&guests.every(p=>p.ready);
+    document.getElementById('btnStart').disabled=!allReady||list.length<2;
+    document.getElementById('btnStart').textContent=allReady&&list.length>=2?'Mulai! ▶':'Tunggu semua siap...';
+  }
+}
+
+function toggleReady(){
+  myReady=!myReady;
+  if(players[myPeerId])players[myPeerId].ready=myReady;
+  const btn=document.getElementById('btnReady');
+  btn.textContent=myReady?'✓ Siap!':'Siap?';
+  btn.className='btn-ready'+(myReady?' ready-state':'');
+  if(isHost) broadcastAll({type:'playerUpdate',players});
+  else if(hostConn) hostConn.send({type:'ready',ready:myReady});
+}
+
+function copyRoomCode(){
+  const code=isHost?myPeerId:roomId;
+  navigator.clipboard?.writeText(code).then(()=>toast('📋 Kode disalin! Share ke teman.'))
+    .catch(()=>{toast('Kode: '+code);});
+}
+
+function broadcastSettings(){
+  if(!isHost)return;
+  gameSettings={map:document.getElementById('mapSelect').value,rounds:parseInt(document.getElementById('roundSelect').value)};
+  broadcastAll({type:'settings',settings:gameSettings});
+}
+
+function updateGuestSettings(){
+  const mapNames={forest:'Hutan',space:'Angkasa',water:'Laut',ground:'Tanah',swamp:'Rawa',dungeon:'Dungeon',sky:'Langit',snow:'Salju',desert:'Gurun',deathdg:'Dungeon Kematian',jungle:'Hutan Belantara',kingdom:'Kerajaan',volcano:'Gunung Berapi',deepSea:'Bawah Laut',random:'Acak'};
+  document.getElementById('guestSettingsTxt').textContent=`🗺️ ${mapNames[gameSettings.map]||gameSettings.map} · ${gameSettings.rounds} Ronde`;
+}
+
+function addChat(av,sender,text){
+  const box=document.getElementById('chatBox');
+  const msg=document.createElement('div');msg.className='chat-msg';
+  const isSystem=sender==='System';
+  msg.innerHTML=isSystem
+    ?`<span style="color:rgba(255,255,255,0.35);font-size:11px;">${av} ${text}</span>`
+    :`<span class="cm-name" style="color:#c4b0ff">${av} ${sender}:</span> <span class="cm-text">${text}</span>`;
+  box.appendChild(msg);box.scrollTop=box.scrollHeight;
+}
+
+function sendChat(){
+  const inp=document.getElementById('chatInp');
+  const text=inp.value.trim();if(!text)return;
+  inp.value='';
+  const msg={type:'chat',sender:myProfile.name,text,av:myProfile.avatar};
+  addChat(myProfile.avatar,myProfile.name,text);
+  if(isHost)broadcastAll(msg);else if(hostConn)hostConn.send(msg);
+}
+
+function broadcastAll(data){
+  Object.values(guestConns).forEach(c=>{try{c.send(data);}catch(e){}});
+}
+
+function leaveLobby(){
+  if(peer){peer.destroy();peer=null;}
+  hostConn=null;guestConns={};players={};myReady=false;
+  goTo('pageMenu');
+  toast('Keluar dari room');
+}
+
+function cancelConnect(){
+  if(peer){peer.destroy();peer=null;}
+  goTo('pageMenu');
+}
+
+// ===== START GAME =====
+function startOnlineGame(){
+  if(!isHost)return;
+  const list=Object.values(players);
+  if(list.length<2){toast('Minimal 2 pemain!');return;}
+  // Assign colors/order
+  const playerOrder=list.map((p,i)=>({peerId:p.peerId,name:p.name,avatar:p.avatar,colorIdx:i}));
+  broadcastAll({type:'startGame',playerOrder,settings:gameSettings});
+  startGameNow(playerOrder,gameSettings);
+}
+
+function startGameNow(playerOrder,settings){
+  // Save to localStorage for the game page to read
+  const myIdx=playerOrder.findIndex(p=>p.peerId===myPeerId);
+  localStorage.setItem('tb_online_game',JSON.stringify({
+    playerOrder,settings,myIdx,
+    isHost,myPeerId,
+    peers: isHost?Object.keys(guestConns):[Object.keys(players).find(id=>id!==myPeerId)]
+  }));
+  // Redirect to game
+  window.location.href='bottlecap-game.html';
+}
+
+function goSolo(){
+  localStorage.removeItem('tb_online_game');
+  window.location.href='bottlecap-game.html';
+}
+
+// ===== CONNECTING PAGE =====
+function showConnecting(title,sub){
+  document.getElementById('connTitle').textContent=title||'Menghubungkan...';
+  document.getElementById('connSub').textContent=sub||'Mohon tunggu';
+  goTo('pageConnecting');
+}
+
+// ===== TOAST =====
+let toastTm;
+function toast(msg){
+  const t=document.getElementById('toast');t.textContent=msg;t.classList.add('show');
+  clearTimeout(toastTm);toastTm=setTimeout(()=>t.classList.remove('show'),2500);
+}
+
+// ===== INIT =====
+const hasProfile=loadProfile();
+buildAvGrid();
+if(hasProfile){goTo('pageMenu');}
+// else stays on profile page
+
+// ===== KEYBOARD shortcut =====
+document.getElementById('chatInp').addEventListener('keydown',e=>{if(e.key==='Enter')sendChat();});
+</script>
+</body>
+</html>
