@@ -96,6 +96,7 @@ function applyFirebaseProfile(data){
   if(pcEl) pcEl.textContent = data.playerCode||'';
   updateVaultCount();
 }
+window.applyFirebaseProfile = applyFirebaseProfile;
 
 // Save profile changes to Firebase
 window.saveProfileToFirebase = async function(updates){
@@ -304,8 +305,15 @@ window.doRegister = async function(){
     const playerCode = genPlayerCode();
     await updateProfile(cred.user, {displayName: username});
     await saveUserToDB(cred.user.uid, username, playerCode, avatar);
+    // Manually apply profile ke UI langsung tanpa tunggu onAuthStateChanged
+    const profileData = {username, avatar, playerCode, gold:9999, diamonds:500, spinCount:3, equippedSkinId:0};
+    window._fbUser = {uid: cred.user.uid, ...profileData};
+    if(typeof applyFirebaseProfile === 'function') applyFirebaseProfile(profileData);
+    // Pindah ke menu
+    document.getElementById('pageAuth')?.classList.remove('active');
+    document.getElementById('pageMenu')?.classList.add('active');
     errEl.textContent='';
-    window.showToast('🎉 Akun berhasil dibuat! Selamat datang, '+username+'!');
+    window.showToast('🎉 Selamat datang, '+username+'!');
   } catch(e){
     if(e.code==='auth/email-already-in-use') errEl.textContent='Email sudah terdaftar!';
     else errEl.textContent='Error: '+e.message;
@@ -1634,14 +1642,14 @@ input[type=range]::-webkit-slider-thumb{
 .btn-buy:active{transform:scale(0.96);}
 
 /* ===== AUTH PAGE ===== */
-#pageAuth{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:20px;z-index:100;overflow-y:auto;}
+#pageAuth{display:flex;flex-direction:column;align-items:center;justify-content:flex-start;padding:16px 16px 40px;z-index:100;overflow-y:auto;-webkit-overflow-scrolling:touch;}
 .auth-box{
-  width:100%;max-width:380px;
+  width:100%;max-width:420px;
   background:rgba(10,20,40,0.95);
   border:1px solid rgba(100,180,255,0.2);
-  border-radius:20px;padding:24px 20px;
+  border-radius:20px;padding:20px 18px;
   box-shadow:0 20px 60px rgba(0,0,0,0.6);
-  margin:auto 0;
+  flex-shrink:0;
 }
 .auth-logo{font-family:'Boogaloo',cursive;font-size:28px;color:var(--cyan);text-align:center;margin-bottom:4px;letter-spacing:2px;}
 .auth-sub{font-size:12px;color:var(--muted);text-align:center;margin-bottom:18px;}
@@ -2963,12 +2971,20 @@ function saveProfileFromModal(){
   showToast('✅ Profil disimpan!');
 }
 
-// Load profile on start - hanya sebagai fallback sementara, Firebase akan override
+// Load profile on start - JANGAN apply nama dari localStorage, biarkan Firebase yang set nama
 const _savedProfile=loadProfile();
-if(_savedProfile) applyProfile(_savedProfile);
-else saveProfile();
-// Catatan: applyFirebaseProfile() dipanggil oleh onAuthStateChanged setelah Firebase load,
-// sehingga nama dari Firebase akan selalu override nama dari localStorage
+if(_savedProfile){
+  // Hanya apply data lokal (skin, gold, spin) tapi BUKAN nama/avatar - itu dari Firebase
+  if(_savedProfile.equippedSkinId!=null){ equippedSkinId=_savedProfile.equippedSkinId; curSkin=_savedProfile.equippedSkinId; setSkin(curSkin); }
+  if(_savedProfile.skinOwned){ _savedProfile.skinOwned.forEach((owned,i)=>{if(ALL_SKINS[i])ALL_SKINS[i].owned=owned;}); }
+  if(_savedProfile.diamonds!=null){ diamonds=_savedProfile.diamonds; const d=document.getElementById('diamondCount'); if(d) d.textContent=diamonds; }
+  if(_savedProfile.spinIndex!=null) spinIndex=_savedProfile.spinIndex;
+  if(_savedProfile.obtainedPrizeIds){[0,1,2].forEach(k=>{obtainedPrizeIds[k]=new Set(_savedProfile.obtainedPrizeIds[k]||[]);});}
+  updateVaultCount();
+} else {
+  saveProfile();
+}
+// Nama & avatar akan di-set oleh applyFirebaseProfile() setelah Firebase auth selesai
 
 // ===== DIAMOND & SPIN SYSTEM =====
 
