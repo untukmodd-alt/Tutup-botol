@@ -92,6 +92,7 @@ canvas{display:block;position:fixed;top:0;left:0;touch-action:none;}
 <div id="pwrap"><div id="plabel">POWER</div><div id="pbar"><div id="pfill"></div></div></div>
 <div id="tann"></div>
 <div id="tpFlash"></div>
+<div id="waitingIndicator" style="display:none;position:fixed;bottom:50px;left:50%;transform:translateX(-50%);background:rgba(0,0,0,0.6);backdrop-filter:blur(8px);border-radius:99px;padding:8px 20px;font-family:'Boogaloo',cursive;font-size:14px;color:rgba(255,255,255,0.5);z-index:10;pointer-events:none;">⏳ Menunggu giliran...</div>
 
 <!-- Round end -->
 <div id="roundEnd">
@@ -264,6 +265,10 @@ let mapSpecial={icePhysics:false, lavaTimer:0, windX:0, stormTimer:0};
 let dmTimer=0, dmInterval=null; // deathmatch
 let movingObs=[]; // space moving asteroids
 
+// ===== ONLINE MULTIPLAYER STATE =====
+let onlineMode=false, myPlayerIdx=-1, onlineRoomCode='';
+let _lastSyncTime=0;
+
 // Load P1 skin from lobby
 let p1skin=null;
 try{const s=localStorage.getItem('tb_p1skin');if(s)p1skin=JSON.parse(s);}catch(e){}
@@ -338,9 +343,92 @@ function showSel(){
   ctx.clearRect(0,0,wc.width,wc.height);
   buildNameInputs();
 }
-showSel();
 
-// ===== START =====
+// ===== ONLINE CHECK =====
+(function init(){
+  try{
+    const raw=localStorage.getItem('tb_online_game');
+    if(!raw){showSel();return;}
+    const od=JSON.parse(raw);
+    if(!od||!od.roomCode){showSel();return;}
+    onlineMode=true; onlineRoomCode=od.roomCode;
+    if(od.players&&od.players.length){
+      nP=od.players.length;
+      od.players.forEach((p,i)=>{customNames[i]=p.name||p.username||('Player '+(i+1));});
+      myPlayerIdx=od.players.findIndex(p=>p.uid===od.myUid);
+      if(myPlayerIdx<0)myPlayerIdx=0;
+    }
+    if(od.settings?.map){const m=od.settings.map;selMaps=[m==='random'?MAPS[Math.floor(Math.random()*(MAPS.length-1))].id:m];}
+    if(od.settings?.rounds)totalRounds=parseInt(od.settings.rounds)||1;
+    const s=document.createElement('script');s.type='module';
+    s.textContent=`import{initializeApp,getApps}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';import{getDatabase,ref,onValue,update,set,get}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';const cfg={apiKey:"AIzaSyAlqKxBvqB2LmX5rJJxCRK7fqkLpDq3yzg",authDomain:"musikku-364eb.firebaseapp.com",projectId:"musikku-364eb",databaseURL:"https://musikku-364eb-default-rtdb.asia-southeast1.firebasedatabase.app",storageBucket:"musikku-364eb.firebasestorage.app",messagingSenderId:"622841169824",appId:"1:622841169824:web:c95ee04dcb020f273b86c5"};const app=getApps().length?getApps()[0]:initializeApp(cfg);const db=getDatabase(app);window._gDb=db;window._gRef=ref;window._gUpdate=update;window._gSet=set;window._gGet=get;window._gOnValue=onValue;window.dispatchEvent(new Event('fbGameReady'));`;
+    document.head.appendChild(s);
+    window.addEventListener('fbGameReady',()=>launchOnlineGame(od),{once:true});
+    setTimeout(()=>{if(!running)launchOnlineGame(od);},4000);
+  }catch(e){console.error(e);showSel();}
+})();
+
+function launchOnlineGame(od){
+  if(running)return;
+  document.getElementById('msel').style.display='none';
+  document.getElementById('hud').style.display='flex';
+  document.getElementById('minimap').style.display='block';
+  document.getElementById('win').classList.remove('show');
+  if(wTimer){clearInterval(wTimer);wTimer=null;}
+  if(dmInterval){clearInterval(dmInterval);dmInterval=null;}
+  curRound=1;totalKills=Array(nP).fill(0);roundKills=Array(nP).fill(0);
+  const mapId=od.settings?.map&&od.settings.map!=='random'?od.settings.map:(selMaps[0]||'forest');
+  curMapId=MAPS.find(m=>m.id===mapId)?mapId:MAPS[Math.floor(Math.random()*(MAPS.length-1))].id;
+  selectedRoundMaps=Array(totalRounds).fill(curMapId);
+  initPlayers();genObs();mazeWalls=[];
+  if(curMapId==='maze')buildMaze();
+  parts=[];portals=[];
+  if(curMapId==='deathdg')spawnPortals();
+  mapSpecial={icePhysics:false,lavaTimer:0,windX:0,stormTimer:0};movingObs=[];
+  if(curMapId==='snow'||curMapId==='jungle')mapSpecial.icePhysics=true;
+  if(curMapId==='sky')mapSpecial.windX=(Math.random()>.5?1:-1)*0.04;
+  if(curMapId==='deepSea')mapSpecial.drag=true;
+  if(curMapId==='space'){for(let i=0;i<8;i++){const a=Math.random()*Math.PI*2,sp=0.6+Math.random()*1.2;movingObs.push({x:WW*.1+Math.random()*WW*.8,y:WH*.1+Math.random()*WH*.8,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:20+Math.random()*25,tp:'asteroid',rot:Math.random()*Math.PI*2,rotSpd:(Math.random()-.5)*0.03});}}
+  if(curMapId==='house')mapSpecial.darkRoom=true;
+  if(curMapId==='kingdom')mapSpecial.deathZone=true;
+  curP=Math.floor(Math.random()*nP);
+  const ci=myPlayerIdx>=0&&myPlayerIdx<players.length?myPlayerIdx:0;
+  cx=ctx2=players[ci].x-wc.width/2;cy=cty=players[ci].y-wc.height/2+HH/2;clampC();
+  buildHUD();running=true;moving=false;
+  if(od.isHost&&window._gDb){
+    window._gUpdate(window._gRef(window._gDb,'rooms/'+onlineRoomCode),{firstTurn:curP});
+    pushOnlineState();
+  } else if(window._gDb){
+    window._gGet(window._gRef(window._gDb,'rooms/'+onlineRoomCode)).then(snap=>{
+      if(snap.exists()&&snap.val().firstTurn!==undefined){curP=snap.val().firstTurn;updHUD();showTA();}
+    });
+  }
+  listenOnlineState();
+  showTA();if(af)cancelAnimationFrame(af);loop();
+}
+
+function listenOnlineState(){
+  if(!window._gDb||!onlineRoomCode)return;
+  window._gOnValue(window._gRef(window._gDb,'rooms/'+onlineRoomCode+'/gameState'),snap=>{
+    if(!snap.exists()||!running)return;
+    const gs=snap.val();if(!gs)return;
+    if(gs.curP!==undefined&&gs.curP!==curP&&!moving){curP=gs.curP;updHUD();showTA();}
+    if(gs.positions){gs.positions.forEach((pos,i)=>{
+      if(i===myPlayerIdx)return;
+      if(players[i]){players[i].x=pos.x;players[i].y=pos.y;players[i].vx=pos.vx||0;players[i].vy=pos.vy||0;players[i].alive=pos.alive!==false;players[i].kills=pos.kills||0;}
+    });}
+    if(gs.totalKills)gs.totalKills.forEach((k,i)=>{totalKills[i]=k;});
+  });
+}
+
+function pushOnlineState(){
+  if(!onlineMode||!window._gDb||!onlineRoomCode)return;
+  const now=Date.now();if(now-_lastSyncTime<80)return;_lastSyncTime=now;
+  const pos=players.map(p=>({x:Math.round(p.x),y:Math.round(p.y),vx:+(p.vx.toFixed(2)),vy:+(p.vy.toFixed(2)),alive:p.alive,kills:p.kills}));
+  window._gUpdate(window._gRef(window._gDb,'rooms/'+onlineRoomCode+'/gameState'),{curP,positions:pos,totalKills,ts:now});
+}
+
+// ===== START (solo) =====
 function startGame(){
   for(let i=0;i<nP;i++){const el=document.getElementById('nin'+i);if(el)customNames[i]=el.value.trim();}
   document.getElementById('msel').style.display='none';
@@ -799,6 +887,7 @@ function phys(){
   if(Math.hypot(ap.vx,ap.vy)<SS&&moving){ap.vx=0;ap.vy=0;moving=false;ap.trail=[];nextT();return;}
   ap.vx*=fr;ap.vy*=fr;ap.x+=ap.vx;ap.y+=ap.vy;
   ap.trail.push({x:ap.x,y:ap.y});if(ap.trail.length>28)ap.trail.shift();
+  if(onlineMode) pushOnlineState();
   // Bounce walls
   if(ap.x-BR<0){ap.x=BR;ap.vx=Math.abs(ap.vx)*bo;spB(ap.x,ap.y,ap.color);playSound('bounce');}
   if(ap.x+BR>WW){ap.x=WW-BR;ap.vx=-Math.abs(ap.vx)*bo;spB(ap.x,ap.y,ap.color);playSound('bounce');}
@@ -862,6 +951,7 @@ function phys(){
         spP(p.x,p.y,p.color,22);playSound('kill');
       }
       showKP(p,ap);updHUD();
+      if(onlineMode) pushOnlineState();
 
       if(gameMode===3){
         // Deathmatch: respawn cepat, game terus jalan
@@ -940,7 +1030,10 @@ function drwMM(){
 // ===== DRAG =====
 function gxy(e){const t=e.touches?e.touches[0]:e;return{x:t.clientX,y:t.clientY};}
 wc.addEventListener('pointerdown',e=>{
-  if(!running||moving)return;const p=players[curP];if(!p||!p.alive)return;
+  if(!running||moving)return;
+  // Online mode: only allow drag on my turn
+  if(onlineMode && curP!==myPlayerIdx) return;
+  const p=players[curP];if(!p||!p.alive)return;
   const pos=gxy(e),wx=pos.x+cx,wy=pos.y+cy;
   if(Math.hypot(wx-p.x,wy-p.y)<BR*3.5){drag=true;ds=pos;dc2=pos;wc.setPointerCapture(e.pointerId);document.getElementById('pwrap').style.opacity='1';}
 },{passive:false});
@@ -971,24 +1064,47 @@ function drwDL(){
 // ===== TURN =====
 function nextT(){
   const alive=players.filter(p=>p.alive);if(alive.length<=1){endRound(alive[0]);return;}
-  let n=(curP+1)%players.length;while(!players[n].alive)n=(n+1)%players.length;curP=n;updHUD();showTA();
+  let n=(curP+1)%players.length;while(!players[n].alive)n=(n+1)%players.length;
+  curP=n;updHUD();showTA();
+  if(onlineMode) pushOnlineState();
 }
-function showTA(){const p=players[curP];if(!p)return;const el=document.getElementById('tann');el.textContent=`Giliran ${p.name}`;el.style.borderColor=p.color+'88';el.style.color=p.color;el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1100);}
+function showTA(){
+  const p=players[curP];if(!p)return;
+  const el=document.getElementById('tann');
+  const isMyTurn=onlineMode&&curP===myPlayerIdx;
+  el.textContent=isMyTurn?`🎯 Giliran Kamu!`:`Giliran ${p.name}`;
+  el.style.borderColor=p.color+'88';el.style.color=isMyTurn?'#00d4aa':p.color;
+  el.classList.add('show');setTimeout(()=>el.classList.remove('show'),1400);
+}
 function showKP(v,k){const el=document.createElement('div');el.className='kpop';el.innerHTML=`<span style="color:${k.color}">${k.name}</span> <span style="color:#fff">membunuh</span> <span style="color:${v.color}">${v.name}</span>`;el.style.left=Math.max(10,wc.width/2-110)+'px';el.style.top=(wc.height/2-55)+'px';document.body.appendChild(el);setTimeout(()=>el.remove(),1500);}
 
 // ===== HUD =====
 function buildHUD(){
   const c=document.getElementById('hplayers');c.innerHTML='';
-  players.forEach((p,i)=>{const d=document.createElement('div');d.className='hud-p'+(i===curP?' active':'')+(p.alive?'':' dead');d.id='hpd'+i;d.style.setProperty('--pc',p.color);d.innerHTML=`<div class="hud-dot"></div><span>${p.name.replace('Player ','P')}</span><span class="hud-k">${totalKills[i]||0}</span>`;c.appendChild(d);});
+  players.forEach((p,i)=>{
+    const isMe=onlineMode&&i===myPlayerIdx;
+    const d=document.createElement('div');
+    d.className='hud-p'+(i===curP?' active':'')+(p.alive?'':' dead');
+    d.id='hpd'+i;d.style.setProperty('--pc',p.color);
+    const nameDisplay=p.name+(isMe?' 👤':'');
+    d.innerHTML=`<div class="hud-dot"></div><span>${nameDisplay}</span><span class="hud-k">${totalKills[i]||0}</span>`;
+    c.appendChild(d);
+  });
 }
 function updHUD(){
   players.forEach((p,i)=>{const el=document.getElementById('hpd'+i);if(!el)return;el.className='hud-p'+(i===curP?' active':'')+(p.alive?'':' dead');el.querySelector('.hud-k').textContent=totalKills[i]||0;});
   const p=players[curP];
+  const isMyTurn=onlineMode&&curP===myPlayerIdx;
+  // Show/hide waiting indicator
+  const wi=document.getElementById('waitingIndicator');
+  if(wi) wi.style.display=(onlineMode&&!isMyTurn&&running)?'block':'none';
   if(gameMode===3){
-    const m=Math.floor(dmTimer/60), s=dmTimer%60;
+    const m=Math.floor(dmTimer/60),s=dmTimer%60;
     document.getElementById('hround').textContent=`⚔️ DM · ${String(m).padStart(2,'0')}:${String(s).padStart(2,'0')} · ${p?p.name:''}`;
-    // Red timer when under 30s
     document.getElementById('hround').style.color=dmTimer<=30?'#e94560':'rgba(255,255,255,0.6)';
+  } else if(onlineMode){
+    document.getElementById('hround').textContent=isMyTurn?`🎯 Giliran Kamu!`:`Giliran ${p?p.name:''}`;
+    document.getElementById('hround').style.color=isMyTurn?'#00d4aa':'rgba(255,255,255,0.6)';
   } else {
     document.getElementById('hround').textContent=`Ronde ${curRound}/${totalRounds} · ${p?p.name:''}`;
     document.getElementById('hround').style.color='rgba(255,255,255,0.6)';

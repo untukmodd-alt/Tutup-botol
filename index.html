@@ -109,6 +109,7 @@ async function loadUserFromDB(uid){
   }
   listenFriendRequests(uid);
   listenFriends(uid);
+  listenRoomInvites(uid);
   return data;
 }
 
@@ -138,6 +139,78 @@ function listenFriends(uid){
     if(document.getElementById('friendsListBody')) renderFriendsList(window._friends);
     if(document.getElementById('inviteList')) buildInviteList();
   });
+}
+
+// ===== ROOM INVITE LISTENER =====
+function listenRoomInvites(uid){
+  onValue(ref(db,'roomInvites/'+uid), snap=>{
+    if(!snap.exists()) return;
+    const invites = snap.val()||{};
+    Object.entries(invites).forEach(([roomCode, inv])=>{
+      if(inv.status!=='pending') return;
+      showRoomInviteNotif(inv, roomCode, uid);
+    });
+  });
+}
+
+let _shownInvites = new Set();
+function showRoomInviteNotif(inv, roomCode, myUid){
+  const key = roomCode+'_'+inv.sentAt;
+  if(_shownInvites.has(key)) return;
+  _shownInvites.add(key);
+
+  const notif = document.createElement('div');
+  notif.id = 'inv-notif-'+roomCode;
+  notif.style.cssText = `
+    position:fixed;top:60px;left:50%;transform:translateX(-50%) translateY(-80px);
+    z-index:9999;background:rgba(20,12,40,0.97);border:1.5px solid rgba(124,92,252,0.5);
+    border-radius:16px;padding:14px 16px;min-width:280px;max-width:320px;
+    box-shadow:0 8px 32px rgba(0,0,0,0.6);backdrop-filter:blur(12px);
+    transition:transform 0.35s cubic-bezier(0.34,1.56,0.64,1);
+    font-family:'Outfit',sans-serif;
+  `;
+  notif.innerHTML = `
+    <div style="display:flex;align-items:center;gap:10px;margin-bottom:10px;">
+      <div style="font-size:28px">${inv.fromAvatar||'🎭'}</div>
+      <div>
+        <div style="font-family:'Boogaloo',cursive;font-size:15px;color:#fff;">${inv.fromName}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);">mengundang ke <b style="color:#c4b0ff">${inv.roomName||'Room'}</b></div>
+      </div>
+      <div style="margin-left:auto;font-size:10px;color:rgba(255,255,255,0.3);">Kode: <b>${roomCode}</b></div>
+    </div>
+    <div style="display:flex;gap:8px;">
+      <button onclick="acceptRoomInvite('${roomCode}','${myUid}',this.closest('[id]'))" style="flex:1;background:linear-gradient(135deg,#00b894,#00cec9);border:none;border-radius:10px;padding:10px;color:#fff;font-family:'Boogaloo',cursive;font-size:16px;cursor:pointer;">✓ Terima</button>
+      <button onclick="declineRoomInvite('${roomCode}','${myUid}',this.closest('[id]'))" style="flex:1;background:rgba(255,255,255,0.08);border:1.5px solid rgba(255,255,255,0.12);border-radius:10px;padding:10px;color:rgba(255,255,255,0.7);font-family:'Boogaloo',cursive;font-size:16px;cursor:pointer;">✕ Tolak</button>
+    </div>
+  `;
+  document.body.appendChild(notif);
+  // Animate in
+  setTimeout(()=>{ notif.style.transform='translateX(-50%) translateY(0)'; }, 50);
+  // Auto dismiss after 15s
+  setTimeout(()=>dismissInviteNotif(notif), 15000);
+}
+
+function dismissInviteNotif(notif){
+  if(!notif||!notif.parentNode) return;
+  notif.style.transform='translateX(-50%) translateY(-80px)';
+  notif.style.opacity='0';
+  setTimeout(()=>notif.parentNode&&notif.parentNode.removeChild(notif), 350);
+}
+
+function acceptRoomInvite(roomCode, myUid, notifEl){
+  dismissInviteNotif(notifEl);
+  // Mark as accepted in Firebase
+  update(ref(db,'roomInvites/'+myUid+'/'+roomCode), {status:'accepted'});
+  // Auto join the room
+  const inp = document.getElementById('joinCode');
+  if(inp){ inp.value = roomCode; joinRoom(); }
+  else { showToast('Kode room: '+roomCode+'\nMasuk lewat Join Room!'); }
+}
+
+function declineRoomInvite(roomCode, myUid, notifEl){
+  dismissInviteNotif(notifEl);
+  update(ref(db,'roomInvites/'+myUid+'/'+roomCode), {status:'declined'});
+  showToast('Undangan ditolak');
 }
 
 window.searchPlayer = async function(){
@@ -361,6 +434,7 @@ window.doRegister = async function(){
     applyFirebaseProfile(profileData);
     listenFriendRequests(cred.user.uid);
     listenFriends(cred.user.uid);
+    listenRoomInvites(cred.user.uid);
     document.getElementById('pageAuth')?.classList.remove('active');
     document.getElementById('pageMenu')?.classList.add('active');
     window.currentPage = 'pageMenu';
@@ -2546,10 +2620,12 @@ function listenRoom(code){
     const allReady = guests.length>0 && guests.every(p=>p.ready);
     const btnStart = document.getElementById('btnStart');
     if(btnStart){
-      // Tombol Mulai hanya tampil untuk host dan semua tamu sudah ready
       if(window._isHost && allReady && players.length>=2){
-        btnStart.className='btn-start show';
-      } else {
+        if(!btnStart.classList.contains('show')){
+          btnStart.className='btn-start show';
+          showToast('✅ Semua siap! Tekan Mulai!');
+        }
+      } else if(window._isHost) {
         btnStart.className='btn-start';
       }
     }
@@ -2759,12 +2835,42 @@ function leaveLobby(){
 function startGame(){
   const sk=skins[equippedSkinId]||skins[0];
   localStorage.setItem('tb_p1skin', JSON.stringify({g:sk.g, name:sk.name, bh:sk.bh||false}));
-  // If host, set room status to playing so all players get redirected
   const code = window._currentRoomCode;
   if(code && window._isHost && window._db_update){
-    window._db_update(window._db_ref(window._db,'rooms/'+code),{status:'playing'})
-      .then(()=>{ window.location.href='bottlecap-game.html'; });
+    // Get current players from Firebase, shuffle order, save to room
+    window._db_get(window._db_ref(window._db,'rooms/'+code)).then(snap=>{
+      if(!snap.exists()) return;
+      const room = snap.val();
+      const playerList = Object.values(room.players||{});
+      // Shuffle for random first turn
+      for(let i=playerList.length-1;i>0;i--){const j=Math.floor(Math.random()*(i+1));[playerList[i],playerList[j]]=[playerList[j],playerList[i]];}
+      // Save online game data
+      const onlineData = {
+        roomCode: code,
+        players: playerList,
+        myUid: window._fbUser?.uid,
+        isHost: true,
+        dbUrl: 'https://musikku-364eb-default-rtdb.asia-southeast1.firebasedatabase.app',
+      };
+      localStorage.setItem('tb_online_game', JSON.stringify(onlineData));
+      window._db_update(window._db_ref(window._db,'rooms/'+code),{
+        status:'playing',
+        playerOrder: playerList,
+        startedAt: Date.now(),
+      }).then(()=>{ window.location.href='bottlecap-game.html'; });
+    });
+  } else if(code) {
+    // Guest — save own uid so game knows who we are
+    const onlineData = {
+      roomCode: code,
+      myUid: window._fbUser?.uid,
+      isHost: false,
+      dbUrl: 'https://musikku-364eb-default-rtdb.asia-southeast1.firebasedatabase.app',
+    };
+    localStorage.setItem('tb_online_game', JSON.stringify(onlineData));
+    window.location.href='bottlecap-game.html';
   } else {
+    localStorage.removeItem('tb_online_game');
     window.location.href='bottlecap-game.html';
   }
 }
@@ -2936,11 +3042,24 @@ async function buildInviteList(){
 
 function inviteFriendReal(uid, name, idx){
   if(invitedFriends.has(uid)) return;
+  const code = window._currentRoomCode;
+  if(!code){ showToast('Buat room dulu!'); return; }
+  const me = window._fbUser;
+  if(!me) return;
   invitedFriends.add(uid);
   const btn=document.querySelector('#ifriend-'+idx+' .btn-invite-friend');
-  if(btn){btn.textContent='Terkirim';btn.className='btn-invite-friend sent';}
-  // Kirim notif invite ke Firebase (bisa dikembangkan ke room invite nanti)
-  showToast('📨 Undangan dikirim ke '+name+'!');
+  if(btn){btn.textContent='Terkirim ✓';btn.className='btn-invite-friend sent';}
+  // Kirim room invite ke Firebase
+  set(ref(db,'roomInvites/'+uid+'/'+code), {
+    fromUid: me.uid,
+    fromName: me.username,
+    fromAvatar: me.avatar||'🎭',
+    roomCode: code,
+    roomName: document.getElementById('lobbyRoomName')?.textContent||'Room',
+    sentAt: Date.now(),
+    status: 'pending',
+  }).then(()=>showToast('📨 Undangan dikirim ke '+name+'!'))
+    .catch(()=>showToast('Gagal kirim undangan'));
 }
 
 function inviteFriend(idx,name){
