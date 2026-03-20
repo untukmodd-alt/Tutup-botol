@@ -2903,8 +2903,13 @@ function leaveLobby(){
 }
 
 function startGame(){
-  const sk=skins[equippedSkinId]||skins[0];
-  localStorage.setItem('tb_p1skin', JSON.stringify({g:sk.g, name:sk.name, bh:sk.bh||false}));
+  // Ambil skin dari ALL_SKINS (lengkap) bukan skins array lama
+  const allSk = typeof ALL_SKINS!=='undefined' ? ALL_SKINS : [];
+  const sk = allSk.find(s=>s.id===equippedSkinId) || allSk[0] || {g:'',name:'Default',bh:false};
+  localStorage.setItem('tb_p1skin', JSON.stringify({
+    g:sk.g, name:sk.name, bh:sk.bh||false, id:sk.id||0,
+    effect:sk.effect||null, drawType:sk.drawType||'radial', colors:sk.colors||[]
+  }));
   const code = window._currentRoomCode;
   if(code && window._isHost && window._db_update){
     // Get current players from Firebase, shuffle order, save to room
@@ -2957,20 +2962,37 @@ function startGame(){
 }
 // ===== VAULT =====
 var ALL_SKINS=[
-  {id:0,name:'Emerald',g:'radial-gradient(circle at 35% 30%,#a8e6cf,#4ecca3 40%,#1a8a6a 75%,#0d5c45)',owned:true,price:0},
-  {id:1,name:'Lava',g:'radial-gradient(circle at 35% 30%,#ffb3b3,#e94560 40%,#8b0000 75%,#3d0000)',owned:true,price:0},
-  {id:2,name:'Ocean',g:'radial-gradient(circle at 35% 30%,#b3d9ff,#74b9ff 40%,#0984e3 75%,#023e6e)',owned:true,price:0},
-  {id:3,name:'Emas ✨',g:'radial-gradient(circle at 35% 30%,#fff3b3,#f5c518 40%,#b8860b 75%,#6b4c00)',owned:false,price:500},
-  {id:4,name:'Galaxy',g:'radial-gradient(circle at 35% 30%,#d6b4ff,#a29bfe 40%,#6c5ce7 75%,#2d1b6e)',owned:false,price:800},
-  {id:5,name:'Coral 🔥',g:'radial-gradient(circle at 35% 30%,#ffe0b3,#fd9644 40%,#e55039 75%,#641e16)',owned:false,price:600},
-  {id:6,name:'Ice ❄️',g:'radial-gradient(circle at 35% 30%,#e8f8ff,#b3e0ff 40%,#5dade2 75%,#1a5276)',owned:false,price:700},
-  {id:7,name:'Toxic ☠️',g:'radial-gradient(circle at 35% 30%,#d4ffb3,#7ed321 40%,#3d7a00 75%,#1a3500)',owned:false,price:900},
-  {id:8,name:'Rose 🌹',g:'radial-gradient(circle at 35% 30%,#ffb3d9,#e91e8c 40%,#8b0050 75%,#3d0025)',owned:false,price:750},
-  {id:9,name:'Shadow',g:'radial-gradient(circle at 35% 30%,#5a5a5a,#2d2d2d 40%,#111 75%,#000)',owned:false,price:1200},
-  {id:10,name:'Aurora 🌌',g:'radial-gradient(circle at 35% 30%,#b3fff0,#00e5cc 40%,#006666 75%,#001a1a)',owned:false,price:1500},
-  {id:11,name:'Magma',g:'radial-gradient(circle at 35% 30%,#ffcc80,#ff6f00 40%,#8b2500 75%,#3d0f00)',owned:false,price:1100},
-  {id:12,name:'Black Hole 🌑',g:'radial-gradient(circle at 35% 30%,#6600cc,#220044 30%,#000 60%,#000)',owned:false,price:0,spinOnly:true,bh:true},
-  {id:13,name:'Inferno & Frost ⚡',g:'linear-gradient(135deg,#ff4500 0%,#ff6b35 40%,#00bfff 60%,#0080ff 100%)',owned:false,price:0,msgOnly:true,legendary:true,desc:'Skin Legendary — Hanya dari Pesan Dev!'},
+  // drawType: 'radial' (default), 'split' (belah dua), 'glow' (dengan aura), 'pulse' (berkedip)
+  // colors: [highlight, mid, dark] untuk radial | [warna_kiri, warna_kanan] untuk split
+  {id:0, name:'Emerald',       g:'radial-gradient(circle at 35% 30%,#a8e6cf,#4ecca3 40%,#1a8a6a 75%,#0d5c45)', owned:true,  price:0,
+    colors:['#a8e6cf','#4ecca3','#0d5c45'], drawType:'radial'},
+  {id:1, name:'Lava',          g:'radial-gradient(circle at 35% 30%,#ffb3b3,#e94560 40%,#8b0000 75%,#3d0000)', owned:true,  price:0,
+    colors:['#ffb3b3','#e94560','#3d0000'], drawType:'radial'},
+  {id:2, name:'Ocean',         g:'radial-gradient(circle at 35% 30%,#b3d9ff,#74b9ff 40%,#0984e3 75%,#023e6e)', owned:true,  price:0,
+    colors:['#b3d9ff','#74b9ff','#023e6e'], drawType:'radial'},
+  {id:3, name:'Emas ✨',       g:'radial-gradient(circle at 35% 30%,#fff3b3,#f5c518 40%,#b8860b 75%,#6b4c00)', owned:false, price:500,
+    colors:['#fff3b3','#f5c518','#6b4c00'], drawType:'radial'},
+  {id:4, name:'Galaxy',        g:'radial-gradient(circle at 35% 30%,#d6b4ff,#a29bfe 40%,#6c5ce7 75%,#2d1b6e)', owned:false, price:800,
+    colors:['#d6b4ff','#a29bfe','#2d1b6e'], drawType:'glow', glowColor:'rgba(120,80,255,0.4)'},
+  {id:5, name:'Coral 🔥',      g:'radial-gradient(circle at 35% 30%,#ffe0b3,#fd9644 40%,#e55039 75%,#641e16)', owned:false, price:600,
+    colors:['#ffe0b3','#fd9644','#641e16'], drawType:'radial'},
+  {id:6, name:'Ice ❄️',        g:'radial-gradient(circle at 35% 30%,#e8f8ff,#b3e0ff 40%,#5dade2 75%,#1a5276)', owned:false, price:700,
+    colors:['#e8f8ff','#b3e0ff','#1a5276'], drawType:'radial'},
+  {id:7, name:'Toxic ☠️',      g:'radial-gradient(circle at 35% 30%,#d4ffb3,#7ed321 40%,#3d7a00 75%,#1a3500)', owned:false, price:900,
+    colors:['#d4ffb3','#7ed321','#1a3500'], drawType:'radial'},
+  {id:8, name:'Rose 🌹',       g:'radial-gradient(circle at 35% 30%,#ffb3d9,#e91e8c 40%,#8b0050 75%,#3d0025)', owned:false, price:750,
+    colors:['#ffb3d9','#e91e8c','#3d0025'], drawType:'radial'},
+  {id:9, name:'Shadow',        g:'radial-gradient(circle at 35% 30%,#5a5a5a,#2d2d2d 40%,#111 75%,#000)',        owned:false, price:1200,
+    colors:['#5a5a5a','#2d2d2d','#000000'], drawType:'radial'},
+  {id:10,name:'Aurora 🌌',     g:'radial-gradient(circle at 35% 30%,#b3fff0,#00e5cc 40%,#006666 75%,#001a1a)',  owned:false, price:1500,
+    colors:['#b3fff0','#00e5cc','#001a1a'], drawType:'glow', glowColor:'rgba(0,200,200,0.35)'},
+  {id:11,name:'Magma',         g:'radial-gradient(circle at 35% 30%,#ffcc80,#ff6f00 40%,#8b2500 75%,#3d0f00)',  owned:false, price:1100,
+    colors:['#ffcc80','#ff6f00','#3d0f00'], drawType:'radial'},
+  {id:12,name:'Black Hole 🌑', g:'radial-gradient(circle at 35% 30%,#6600cc,#220044 30%,#000 60%,#000)',         owned:false, price:0, spinOnly:true, bh:true,
+    colors:['#6600cc','#220044','#000000'], drawType:'radial', effect:'blackhole'},
+  {id:13,name:'Inferno & Frost ⚡',g:'linear-gradient(135deg,#ff4500,#00bfff)', owned:false, price:0, msgOnly:true, legendary:true,
+    colors:['#ff4500','#00bfff'], drawType:'split', effect:'infernoFrost',
+    desc:'Skin Legendary — Hanya dari Pesan Dev!'},
 ];
 let equippedSkinId=0, selectedVaultSkin=ALL_SKINS[0], vaultFilter='all';
 
