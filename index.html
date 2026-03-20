@@ -299,13 +299,24 @@ window.doLoginGoogle = async function(){
 // ===== AUTH STATE =====
 // ===== AUTH STATE — pakai popup jadi tidak perlu handleGoogleRedirect =====
 function showAuthPage(){
+  if(auth.currentUser) return;
   document.getElementById('pageMenu')?.classList.remove('active');
   const authPage = document.getElementById('pageAuth');
-  if(authPage){authPage.classList.add('active');authPage.style.transform='translateX(0)';authPage.style.opacity='1';authPage.style.pointerEvents='all';}
+  if(authPage){
+    authPage.style.display='flex';
+    authPage.classList.add('active');
+    authPage.style.opacity='1';
+    authPage.style.pointerEvents='all';
+  }
   window.currentPage = 'pageAuth';
 }
 function showMenuPage(){
-  document.getElementById('pageAuth')?.classList.remove('active');
+  const authPage = document.getElementById('pageAuth');
+  if(authPage){
+    authPage.style.display='none';
+    authPage.classList.remove('active');
+    authPage.style.pointerEvents='none';
+  }
   document.getElementById('pageMenu')?.classList.add('active');
   window.currentPage = 'pageMenu';
 }
@@ -1776,7 +1787,7 @@ input[type=range]::-webkit-slider-thumb{
 <body>
 
 <!-- ===== AUTH PAGE ===== -->
-<div class="page" id="pageAuth" style="z-index:200;">
+<div class="page" id="pageAuth" style="z-index:200;display:none;">
   <div class="auth-box">
     <div class="auth-logo">🎯 TUTUP BOTOL</div>
     <div class="auth-sub">Login atau daftar untuk main online</div>
@@ -2411,7 +2422,14 @@ function createRoom(){
   const speed=speedList[speedIdx];
   const code=roomCode;
 
-  if(!window._fbUser){ showToast('Login dulu!'); return; }
+  // Kalau _fbUser belum ready, coba load dulu
+  if(!window._fbUser){
+    const cu = auth.currentUser;
+    if(!cu){ showToast('Login dulu!'); return; }
+    showToast('Memuat profil...');
+    loadUserFromDB(cu.uid).then(()=>{ if(window._fbUser) createRoom(); });
+    return;
+  }
 
   // Save room to Firebase
   const me = window._fbUser;
@@ -2446,8 +2464,13 @@ function createRoom(){
 function joinRoom(){
   const code=document.getElementById('joinCode').value.trim().toUpperCase();
   if(code.length<4){showToast('Kode minimal 4 karakter!');return;}
-  if(!window._fbUser){ showToast('Login dulu!'); return; }
-
+  if(!window._fbUser){
+    const cu = auth.currentUser;
+    if(!cu){ showToast('Login dulu!'); return; }
+    showToast('Memuat profil...');
+    loadUserFromDB(cu.uid).then(()=>{ if(window._fbUser) joinRoom(); });
+    return;
+  }
   const me = window._fbUser;
   // Check room exists in Firebase
   window._db_get(window._db_ref(window._db,'rooms/'+code)).then(snap=>{
