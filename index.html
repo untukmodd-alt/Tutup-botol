@@ -286,8 +286,8 @@ window.doLoginGoogle = async function(){
 async function handleGoogleRedirect(){
   try{
     const result = await getRedirectResult(auth);
-    sessionStorage.removeItem('tb_google_redirect');
     if(!result) return false;
+    sessionStorage.removeItem('tb_google_redirect');
     const user = result.user;
     const snap = await get(ref(db,'users/'+user.uid));
     if(!snap.exists()){
@@ -306,33 +306,39 @@ async function handleGoogleRedirect(){
   }
 }
 
-// Pasang auth listener langsung — tidak perlu tunggu handleGoogleRedirect
-// Firebase onAuthStateChanged sudah handle semua kasus login termasuk Google
-onAuthStateChanged(auth, async (user)=>{
-  if(user){
-    await loadUserFromDB(user.uid);
-    await setupPresence(user.uid);
-    sessionStorage.removeItem('tb_google_redirect');
-    document.getElementById('pageAuth')?.classList.remove('active');
-    document.getElementById('pageMenu')?.classList.add('active');
-    window.currentPage = 'pageMenu';
-  } else {
-    // Kalau sedang proses redirect Google, jangan tampilkan auth page
-    if(sessionStorage.getItem('tb_google_redirect')) return;
-    document.getElementById('pageMenu')?.classList.remove('active');
-    const authPage = document.getElementById('pageAuth');
-    if(authPage){
-      authPage.classList.add('active');
-      authPage.style.transform = 'translateX(0)';
-      authPage.style.opacity = '1';
-      authPage.style.pointerEvents = 'all';
-    }
-    window.currentPage = 'pageAuth';
+function showAuthPage(){
+  document.getElementById('pageMenu')?.classList.remove('active');
+  const authPage = document.getElementById('pageAuth');
+  if(authPage){
+    authPage.classList.add('active');
+    authPage.style.transform = 'translateX(0)';
+    authPage.style.opacity = '1';
+    authPage.style.pointerEvents = 'all';
   }
-});
+  window.currentPage = 'pageAuth';
+}
 
-// Panggil handleGoogleRedirect untuk proses data user Google baru
-handleGoogleRedirect();
+function showMenuPage(){
+  document.getElementById('pageAuth')?.classList.remove('active');
+  document.getElementById('pageMenu')?.classList.add('active');
+  window.currentPage = 'pageMenu';
+}
+
+// Tunggu redirect result dulu, BARU pasang auth listener
+// Ini mencegah auth page muncul sebelum Google redirect selesai
+handleGoogleRedirect().then(()=>{
+  onAuthStateChanged(auth, async (user)=>{
+    if(user){
+      await loadUserFromDB(user.uid);
+      await setupPresence(user.uid);
+      showMenuPage();
+    } else {
+      // Cek sekali lagi apakah masih ada redirect pending
+      if(sessionStorage.getItem('tb_google_redirect')) return;
+      showAuthPage();
+    }
+  });
+});
 
 // ===== REGISTER =====
 window.doRegister = async function(){
