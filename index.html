@@ -3074,6 +3074,10 @@ function equipFromVault(){
   curSkin=selectedVaultSkin.id;
   setSkin(curSkin);
   saveProfile();
+  // Simpan ke Firebase supaya tidak reset saat login ulang
+  if(typeof saveProfileToFirebase==='function'){
+    saveProfileToFirebase({equippedSkinId, skinOwned:ALL_SKINS.map(s=>s.owned)});
+  }
   showToast('✅ Skin '+selectedVaultSkin.name+' dipakai!');
   selectVaultSkin(selectedVaultSkin);
 }
