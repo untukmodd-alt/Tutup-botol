@@ -2151,7 +2151,7 @@ input[type=range]::-webkit-slider-thumb{
       <!-- Action buttons -->
       <div class="lobby-actions">
         <button class="btn-ready not-ready" id="btnReady" onclick="toggleReady()">Belum Siap</button>
-        <button class="btn-start" id="btnStart" onclick="startGame()">Mulai!</button>
+        <button class="btn-start" id="btnStart" onclick="startGame()" style="display:none;">▶ Mulai!</button>
       </div>
     </div>
 
@@ -2713,15 +2713,15 @@ function setupLobby(opt){
   const btnStart=document.getElementById('btnStart');
 
   if(opt.isHost){
-    // Host: langsung tampilkan tombol Mulai, sembunyikan tombol Siap
     btnReady.style.display='none';
-    btnStart.className='btn-start host-show';
+    btnStart.style.display='block';
     btnStart.textContent='▶ Mulai!';
+    btnStart.className='btn-start host-show';
   } else {
-    // Guest: tampilkan tombol Siap, sembunyikan Mulai
     btnReady.style.display='';
     btnReady.className='btn-ready not-ready';
     btnReady.textContent='Belum Siap';
+    btnStart.style.display='none';
     btnStart.className='btn-start';
   }
 
