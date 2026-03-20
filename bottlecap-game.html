@@ -364,22 +364,37 @@ function showSel(){
     document.head.appendChild(s);
 
     window.addEventListener('fbGameReady',()=>{
-      // Always read room data fresh from Firebase
+      // Baca room data fresh dari Firebase
       window._gGet(window._gRef(window._gDb,'rooms/'+od.roomCode)).then(snap=>{
         if(!snap.exists()){showLoadingScreen('Room tidak ditemukan!');return;}
         const room=snap.val();
-        // Merge room player data
-        const roomPlayers=Object.values(room.playerOrder||room.players||{});
-        if(roomPlayers.length>0){
-          nP=roomPlayers.length;
-          roomPlayers.forEach((p,i)=>{customNames[i]=p.name||p.username||('Player '+(i+1));});
-          myPlayerIdx=roomPlayers.findIndex(p=>p.uid===od.myUid);
-          if(myPlayerIdx<0)myPlayerIdx=0;
+
+        // Ambil players dari room (exclude bots untuk urutan pemain manusia)
+        const allPlayers=Object.values(room.playerOrder||room.players||{});
+        const humanPlayers=allPlayers.filter(p=>!p.isBot);
+        const botPlayers=allPlayers.filter(p=>p.isBot);
+        // Urutan: manusia dulu, bot belakang
+        const orderedPlayers=[...humanPlayers,...botPlayers];
+
+        if(orderedPlayers.length>0){
+          nP=orderedPlayers.length;
+          orderedPlayers.forEach((p,i)=>{
+            customNames[i]=p.name||p.username||('Player '+(i+1));
+          });
+          // Cari index aku berdasarkan UID
+          const myIdx=humanPlayers.findIndex(p=>p.uid===od.myUid);
+          myPlayerIdx=myIdx>=0?myIdx:(od.isHost?0:-1);
+          // Kalau masih -1 (uid tidak ditemukan), pakai index berdasarkan isHost
+          if(myPlayerIdx<0){
+            // Fallback: host = index 0, guest = index 1
+            myPlayerIdx=od.isHost?0:1;
+          }
         }
-        const map=room.mapRandom?'random':(od.settings?.map||'forest');
-        selMaps=[map];
-        totalRounds=od.settings?.rounds||1;
-        launchOnlineGame({...od,isHost:od.isHost,firstTurn:room.firstTurn});
+
+        const map=room.mapRandom?'random':(od.settings?.map||selMaps[0]||'forest');
+        selMaps=[map==='random'?MAPS[Math.floor(Math.random()*(MAPS.length-1))].id:map];
+        totalRounds=parseInt(od.settings?.rounds||room.rounds||1);
+        launchOnlineGame({...od,firstTurn:room.firstTurn});
       }).catch(e=>{showLoadingScreen('Error: '+e.message);});
     },{once:true});
 
@@ -412,6 +427,7 @@ function hideLoadingScreen(){
 
 function launchOnlineGame(od){
   if(running)return;
+  console.log('🎮 launchOnlineGame | isHost:',od.isHost,'myPlayerIdx:',myPlayerIdx,'nP:',nP,'names:',customNames.slice(0,nP));
   hideLoadingScreen();
   document.getElementById('msel').style.display='none';
   document.getElementById('hud').style.display='flex';
@@ -436,7 +452,7 @@ function launchOnlineGame(od){
   if(curMapId==='house')mapSpecial.darkRoom=true;
   if(curMapId==='kingdom')mapSpecial.deathZone=true;
 
-  // Giliran acak — host set, guest baca dari Firebase
+  // Giliran acak — host set, guest SELALU tunggu dari Firebase
   if(od.isHost){
     curP=Math.floor(Math.random()*nP);
     if(window._gDb){
@@ -444,7 +460,7 @@ function launchOnlineGame(od){
       pushOnlineState();
     }
   } else {
-    // Guest: pakai firstTurn dari room data, atau tunggu sync
+    // Guest: mulai dari 0, akan diupdate saat Firebase sync masuk
     curP=od.firstTurn!==undefined?od.firstTurn:0;
   }
 
@@ -460,12 +476,30 @@ function listenOnlineState(){
   window._gOnValue(window._gRef(window._gDb,'rooms/'+onlineRoomCode+'/gameState'),snap=>{
     if(!snap.exists()||!running)return;
     const gs=snap.val();if(!gs)return;
-    if(gs.curP!==undefined&&gs.curP!==curP&&!moving){curP=gs.curP;updHUD();showTA();}
+    // Selalu update curP dari Firebase (tidak cek moving supaya sync tetap akurat)
+    if(gs.curP!==undefined&&gs.curP!==curP){
+      curP=gs.curP;updHUD();
+      if(!moving)showTA();
+    }
+    // Sync posisi pemain lain
     if(gs.positions){gs.positions.forEach((pos,i)=>{
       if(i===myPlayerIdx)return;
-      if(players[i]){players[i].x=pos.x;players[i].y=pos.y;players[i].vx=pos.vx||0;players[i].vy=pos.vy||0;players[i].alive=pos.alive!==false;players[i].kills=pos.kills||0;}
+      if(players[i]){
+        players[i].x=pos.x;players[i].y=pos.y;
+        players[i].vx=pos.vx||0;players[i].vy=pos.vy||0;
+        players[i].alive=pos.alive!==false;
+        players[i].kills=pos.kills||0;
+      }
     });}
-    if(gs.totalKills)gs.totalKills.forEach((k,i)=>{totalKills[i]=k;});
+    if(gs.totalKills)gs.totalKills.forEach((k,i)=>{if(k!==undefined)totalKills[i]=k;});
+  });
+  // Also listen to firstTurn in case host sets it after guest loads
+  window._gOnValue(window._gRef(window._gDb,'rooms/'+onlineRoomCode),snap=>{
+    if(!snap.exists())return;
+    const room=snap.val();
+    if(room.firstTurn!==undefined&&!running){
+      curP=room.firstTurn;
+    }
   });
 }
 
@@ -1114,7 +1148,11 @@ function nextT(){
   const alive=players.filter(p=>p.alive);if(alive.length<=1){endRound(alive[0]);return;}
   let n=(curP+1)%players.length;while(!players[n].alive)n=(n+1)%players.length;
   curP=n;updHUD();showTA();
-  if(onlineMode) pushOnlineState();
+  // Push immediately saat giliran ganti
+  if(onlineMode&&window._gDb){
+    _lastSyncTime=0; // Reset throttle supaya langsung push
+    pushOnlineState();
+  }
 }
 function showTA(){
   const p=players[curP];if(!p)return;

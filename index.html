@@ -2875,13 +2875,17 @@ function startGame(){
         players: playerList,
         myUid: window._fbUser?.uid,
         isHost: true,
-        dbUrl: 'https://musikku-364eb-default-rtdb.asia-southeast1.firebasedatabase.app',
+        settings: {
+          map: room.mapRandom?'random':'forest',
+          rounds: room.rounds||1,
+        },
       };
       localStorage.setItem('tb_online_game', JSON.stringify(onlineData));
       window._db_update(window._db_ref(window._db,'rooms/'+code),{
         status:'playing',
         playerOrder: playerList,
         startedAt: Date.now(),
+        rounds: room.rounds||1,
       }).then(()=>{ window.location.href='bottlecap-game.html'; });
     });
   } else if(code) {
