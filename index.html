@@ -8,7 +8,7 @@
 <!-- Firebase SDK -->
 <script type="module">
 import { initializeApp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js";
-import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile, GoogleAuthProvider, signInWithRedirect, getRedirectResult } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
+import { getAuth, createUserWithEmailAndPassword, signInWithEmailAndPassword, onAuthStateChanged, signOut, updateProfile, GoogleAuthProvider, signInWithPopup } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-auth.js";
 import { getDatabase, ref, set, get, update, onValue, onDisconnect, serverTimestamp } from "https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js";
 
 const firebaseConfig = {
@@ -273,29 +273,11 @@ window.doLoginGoogle = async function(){
   setErr('Membuka Google...');
   try{
     const provider = new GoogleAuthProvider();
-    // Simpan di 2 tempat biar aman di mobile
-    sessionStorage.setItem('tb_google_redirect','1');
-    localStorage.setItem('tb_google_redirect_backup','1');
-    await signInWithRedirect(auth, provider);
-  } catch(e){
-    sessionStorage.removeItem('tb_google_redirect');
-    localStorage.removeItem('tb_google_redirect_backup');
-    setErr('Error: '+e.message);
-  }
-}
-
-// ===== AUTH STATE =====
-// Definisi handleGoogleRedirect SEBELUM dipanggil
-async function handleGoogleRedirect(){
-  try{
-    const result = await getRedirectResult(auth);
-    if(!result) return false;
-    sessionStorage.removeItem('tb_google_redirect');
-    localStorage.removeItem('tb_google_redirect_backup');
+    const result = await signInWithPopup(auth, provider);
     const user = result.user;
+    setErr('Menyiapkan akun...');
     const snap = await get(ref(db,'users/'+user.uid));
     if(!snap.exists()){
-      // Akun baru — buat data fresh
       let username = (user.displayName||'Player').replace(/[^a-zA-Z0-9_]/g,'').slice(0,20)||'Player';
       if(username.length < 3) username = 'Player'+Math.floor(Math.random()*9999);
       const usnap = await get(ref(db,'usernames/'+username.toLowerCase()));
@@ -303,52 +285,41 @@ async function handleGoogleRedirect(){
       const playerCode = genPlayerCode();
       await saveUserToDB(user.uid, username, playerCode, '👑');
     }
-    // Selalu load data dari DB setelah Google redirect
     await loadUserFromDB(user.uid);
     await setupPresence(user.uid);
+    setErr('');
     showMenuPage();
-    return true;
   } catch(e){
-    sessionStorage.removeItem('tb_google_redirect');
-    console.error('Google redirect error:', e.code, e.message);
-    return false;
+    if(e.code === 'auth/popup-closed-by-user') setErr('Login dibatalkan.');
+    else if(e.code === 'auth/popup-blocked') setErr('Popup diblokir browser! Coba matikan popup blocker.');
+    else setErr('Error: '+e.message);
   }
 }
 
+// ===== AUTH STATE =====
+// ===== AUTH STATE — pakai popup jadi tidak perlu handleGoogleRedirect =====
 function showAuthPage(){
   document.getElementById('pageMenu')?.classList.remove('active');
   const authPage = document.getElementById('pageAuth');
-  if(authPage){
-    authPage.classList.add('active');
-    authPage.style.transform = 'translateX(0)';
-    authPage.style.opacity = '1';
-    authPage.style.pointerEvents = 'all';
-  }
+  if(authPage){authPage.classList.add('active');authPage.style.transform='translateX(0)';authPage.style.opacity='1';authPage.style.pointerEvents='all';}
   window.currentPage = 'pageAuth';
 }
-
 function showMenuPage(){
   document.getElementById('pageAuth')?.classList.remove('active');
   document.getElementById('pageMenu')?.classList.add('active');
   window.currentPage = 'pageMenu';
 }
-
-// Tunggu redirect result dulu, BARU pasang auth listener
-handleGoogleRedirect().then((wasRedirect)=>{
-  if(wasRedirect) return; // Sudah ditangani di handleGoogleRedirect
-  onAuthStateChanged(auth, async (user)=>{
-    if(user){
-      await loadUserFromDB(user.uid);
-      await setupPresence(user.uid);
-      showMenuPage();
-    } else {
-      // Di mobile, sessionStorage bisa hilang — pakai localStorage sebagai backup
-      const pendingRedirect = sessionStorage.getItem('tb_google_redirect') || localStorage.getItem('tb_google_redirect_backup');
-      if(pendingRedirect) return;
-      showAuthPage();
-    }
-  });
+onAuthStateChanged(auth, async (user)=>{
+  if(user){
+    await loadUserFromDB(user.uid);
+    await setupPresence(user.uid);
+    showMenuPage();
+  } else {
+    showAuthPage();
+  }
 });
+
+
 
 // ===== REGISTER =====
 window.doRegister = async function(){
@@ -1908,7 +1879,7 @@ input[type=range]::-webkit-slider-thumb{
       <div class="avatar-box" id="avatarBox">🎭</div>
       <div class="avatar-edit-dot">✏️</div>
       <div>
-        <div class="pname" id="displayName">Killers</div>
+        <div class="pname" id="displayName">Memuat...</div>
         <div class="plevel" id="playerCodeDisplay" style="color:var(--cyan);font-size:10px;">⚔️ Level 999</div>
       </div>
     </div>
