@@ -97,6 +97,10 @@ function applyFirebaseProfile(data){
   }
   if(data.skinOwned && typeof ALL_SKINS !== 'undefined'){
     data.skinOwned.forEach((owned,i)=>{ if(ALL_SKINS[i]) ALL_SKINS[i].owned = owned; });
+    // Reset curSkin ke dalam batas owned skins
+    const ownedCount = ALL_SKINS.filter(s=>s.owned).length;
+    if(curSkin >= ownedCount) curSkin = 0;
+    setSkin(curSkin);
   }
   if(typeof updateVaultCount === 'function') updateVaultCount();
 }
@@ -2001,6 +2005,10 @@ input[type=range]::-webkit-slider-thumb{
         👥
         <span class="friend-req-badge" id="friendReqBadge" style="display:none;"></span>
       </button>
+      <button class="topbar-btn" onclick="openInbox()" style="position:relative;background:rgba(255,200,0,0.15);border:1.5px solid rgba(255,200,0,0.3);">
+        ✉️
+        <span id="inboxBadge" style="display:none;position:absolute;top:-4px;right:-4px;background:#e94560;color:#fff;font-size:9px;font-weight:700;border-radius:99px;padding:1px 5px;"></span>
+      </button>
     </div>
   </div>
 
@@ -2135,6 +2143,17 @@ input[type=range]::-webkit-slider-thumb{
 <!-- =====================
      PAGE: LOBBY
 ===================== -->
+<!-- ===== PAGE INBOX ===== -->
+<div class="page" id="pageInbox">
+  <div style="width:100%;max-width:480px;display:flex;flex-direction:column;height:100%;">
+    <div style="display:flex;align-items:center;gap:10px;padding:14px 16px;border-bottom:1px solid rgba(255,255,255,0.07);">
+      <button onclick="goBack('pageInbox','pageMenu')" style="background:none;border:none;color:#fff;font-size:22px;cursor:pointer;">‹</button>
+      <div style="font-family:'Boogaloo',cursive;font-size:20px;">✉️ Pesan</div>
+    </div>
+    <div id="inboxList" style="flex:1;overflow-y:auto;padding:12px;display:flex;flex-direction:column;gap:10px;"></div>
+  </div>
+</div>
+
 <div class="page" id="pageLobby">
   <div class="lobby-topbar">
     <button class="back-btn" onclick="leaveLobby()">‹</button>
@@ -2401,30 +2420,54 @@ const skins=[
 let curSkin=0;
 const ballEl=document.getElementById('ball3d');
 const skinLbl=document.getElementById('skinLabel');
+
+function getOwnedSkins(){
+  // Lazy check — ALL_SKINS mungkin belum ada saat pertama load
+  if(typeof ALL_SKINS!=='undefined'&&ALL_SKINS.length>0){
+    const owned=ALL_SKINS.filter(s=>s.owned);
+    return owned.length>0?owned.map(s=>({name:s.name,g:s.g,bh:s.bh||false,id:s.id})):skins.slice(0,3);
+  }
+  return skins.slice(0,3); // Fallback: 3 skin default
+}
+
 function setSkin(i){
-  ballEl.style.background=skins[i].g;
-  skinLbl.textContent=skins[i].name;
-  if(skins[i].bh){
+  // getOwnedSkins hanya valid setelah ALL_SKINS dideklarasi
+  const skinList=(typeof ALL_SKINS!=='undefined'&&ALL_SKINS.length>0)?getOwnedSkins():skins.slice(0,3);
+  const sk=skinList[i]||skins[0];
+  ballEl.style.background=sk.g;
+  skinLbl.textContent=sk.name;
+  if(sk.bh){
     ballEl.classList.add('ball-blackhole');
   } else {
     ballEl.classList.remove('ball-blackhole');
   }
 }
 setSkin(0);
-function changeSkin(d){curSkin=(curSkin+d+skins.length)%skins.length;setSkin(curSkin);updatePakaiBtn();}
+
+function changeSkin(d){
+  const owned=getOwnedSkins();
+  if(owned.length===0) return;
+  curSkin=(curSkin+d+owned.length)%owned.length;
+  setSkin(curSkin);
+  updatePakaiBtn();
+}
 function equipSkin(){
   const b=document.querySelector('.btn-pakai');
-  equippedSkinId=curSkin;
-  b.textContent='✓ DIPAKAI';
-  b.style.background='linear-gradient(135deg,#00d4aa,#00b894)';
-  b.style.color='#0a1428';
-  showToast('Skin '+skins[curSkin].name+' dipakai! 🎉');
+  const owned=getOwnedSkins();
+  const sk=owned[curSkin]||skins[0];
+  equippedSkinId=sk.id!==undefined?sk.id:curSkin;
+  if(b){b.textContent='✓ DIPAKAI';b.style.background='linear-gradient(135deg,#00d4aa,#00b894)';b.style.color='#0a1428';}
+  showToast('Skin '+sk.name+' dipakai! 🎉');
+  if(typeof saveProfileToFirebase==='function') saveProfileToFirebase({equippedSkinId});
 }
 
 function updatePakaiBtn(){
   const b=document.querySelector('.btn-pakai');
   if(!b) return;
-  if(curSkin===equippedSkinId){
+  const owned=getOwnedSkins();
+  const sk=owned[curSkin];
+  const isEquipped=sk&&sk.id!==undefined?sk.id===equippedSkinId:curSkin===equippedSkinId;
+  if(isEquipped){
     b.textContent='✓ DIPAKAI';
     b.style.background='linear-gradient(135deg,#00d4aa,#00b894)';
     b.style.color='#0a1428';
@@ -2913,7 +2956,7 @@ function startGame(){
   }
 }
 // ===== VAULT =====
-const ALL_SKINS=[
+var ALL_SKINS=[
   {id:0,name:'Emerald',g:'radial-gradient(circle at 35% 30%,#a8e6cf,#4ecca3 40%,#1a8a6a 75%,#0d5c45)',owned:true,price:0},
   {id:1,name:'Lava',g:'radial-gradient(circle at 35% 30%,#ffb3b3,#e94560 40%,#8b0000 75%,#3d0000)',owned:true,price:0},
   {id:2,name:'Ocean',g:'radial-gradient(circle at 35% 30%,#b3d9ff,#74b9ff 40%,#0984e3 75%,#023e6e)',owned:true,price:0},
@@ -2927,6 +2970,7 @@ const ALL_SKINS=[
   {id:10,name:'Aurora 🌌',g:'radial-gradient(circle at 35% 30%,#b3fff0,#00e5cc 40%,#006666 75%,#001a1a)',owned:false,price:1500},
   {id:11,name:'Magma',g:'radial-gradient(circle at 35% 30%,#ffcc80,#ff6f00 40%,#8b2500 75%,#3d0f00)',owned:false,price:1100},
   {id:12,name:'Black Hole 🌑',g:'radial-gradient(circle at 35% 30%,#6600cc,#220044 30%,#000 60%,#000)',owned:false,price:0,spinOnly:true,bh:true},
+  {id:13,name:'Inferno & Frost ⚡',g:'linear-gradient(135deg,#ff4500 0%,#ff6b35 40%,#00bfff 60%,#0080ff 100%)',owned:false,price:0,msgOnly:true,legendary:true,desc:'Skin Legendary — Hanya dari Pesan Dev!'},
 ];
 let equippedSkinId=0, selectedVaultSkin=ALL_SKINS[0], vaultFilter='all';
 
@@ -3713,6 +3757,136 @@ window.switchFriendsTab = function(tab, el){
   if(tab==='req' && window.renderFriendRequests) window.renderFriendRequests();
   if(tab==='teman' && window.renderFriendsList) window.renderFriendsList(window._friends||{});
 }
+
+// ===== INBOX / PESAN SYSTEM =====
+const DEV_MESSAGES = [
+  {
+    id: 'dev_welcome_001',
+    from: '👑 Dev Tutup Botol',
+    title: 'TERIMA KASIH TELAH MEMAINKAN TUTUP BOTOL!',
+    body: 'Halo, makasih udah main game ini! Sebagai hadiah spesial, aku kasih kamu skin Legendary eksklusif yang tidak dijual di mana pun — hanya dari pesan ini!',
+    reward: {type:'skin', skinId:13, skinName:'Inferno & Frost ⚡'},
+    time: 'Dev',
+    important: true,
+  }
+];
+
+function initInbox(){
+  // Cek berapa pesan yang belum dibaca
+  const read = JSON.parse(localStorage.getItem('tb_inbox_read')||'[]');
+  const unread = DEV_MESSAGES.filter(m=>!read.includes(m.id)).length;
+  const badge = document.getElementById('inboxBadge');
+  if(badge){
+    badge.textContent = unread > 0 ? unread : '';
+    badge.style.display = unread > 0 ? 'block' : 'none';
+  }
+}
+
+function openInbox(){
+  // Pastikan currentPage valid
+  if(!document.getElementById(currentPage)) currentPage='pageMenu';
+  goTo('pageInbox');
+  renderInbox();
+  initInbox();
+}
+
+function renderInbox(){
+  const list = document.getElementById('inboxList');
+  if(!list) return;
+  const read = JSON.parse(localStorage.getItem('tb_inbox_read')||'[]');
+  const claimed = JSON.parse(localStorage.getItem('tb_inbox_claimed')||'[]');
+
+  list.innerHTML = DEV_MESSAGES.map(msg=>{
+    const isRead = read.includes(msg.id);
+    const isClaimed = claimed.includes(msg.id);
+    const hasReward = msg.reward;
+    return `
+      <div style="background:rgba(255,255,255,0.05);border:1.5px solid ${msg.important?'rgba(255,200,0,0.3)':'rgba(255,255,255,0.08)'};border-radius:14px;padding:14px;cursor:pointer;" onclick="openMessage('${msg.id}')">
+        <div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;">
+          <div style="font-size:13px;font-family:'Boogaloo',cursive;color:${msg.important?'#ffd700':'#c4b0ff'}">${msg.from}</div>
+          ${!isRead?'<span style="background:#e94560;color:#fff;font-size:9px;font-weight:700;border-radius:99px;padding:1px 6px;">BARU</span>':''}
+          ${hasReward&&!isClaimed?'<span style="background:rgba(255,200,0,0.2);color:#ffd700;font-size:9px;font-weight:700;border-radius:99px;padding:1px 6px;">🎁 HADIAH</span>':''}
+          ${isClaimed?'<span style="background:rgba(0,212,170,0.15);color:#00d4aa;font-size:9px;font-weight:700;border-radius:99px;padding:1px 6px;">✓ DIAMBIL</span>':''}
+          <span style="margin-left:auto;font-size:10px;color:rgba(255,255,255,0.3);">${msg.time}</span>
+        </div>
+        <div style="font-family:'Boogaloo',cursive;font-size:15px;color:#fff;margin-bottom:4px;">${msg.title}</div>
+        <div style="font-size:12px;color:rgba(255,255,255,0.5);display:-webkit-box;-webkit-line-clamp:2;-webkit-box-orient:vertical;overflow:hidden;">${msg.body}</div>
+      </div>`;
+  }).join('');
+  if(DEV_MESSAGES.length===0) list.innerHTML='<div style="text-align:center;color:rgba(255,255,255,0.3);margin-top:40px;">Belum ada pesan</div>';
+}
+
+function openMessage(id){
+  const msg = DEV_MESSAGES.find(m=>m.id===id);
+  if(!msg) return;
+
+  // Mark as read
+  const read = JSON.parse(localStorage.getItem('tb_inbox_read')||'[]');
+  if(!read.includes(id)){ read.push(id); localStorage.setItem('tb_inbox_read',JSON.stringify(read)); }
+  initInbox();
+
+  const claimed = JSON.parse(localStorage.getItem('tb_inbox_claimed')||'[]');
+  const isClaimed = claimed.includes(id);
+
+  // Show message modal
+  let existing = document.getElementById('msgModal');
+  if(existing) existing.remove();
+
+  const modal = document.createElement('div');
+  modal.id = 'msgModal';
+  modal.style.cssText='position:fixed;inset:0;z-index:9999;background:rgba(0,0,0,0.85);backdrop-filter:blur(10px);display:flex;align-items:center;justify-content:center;padding:20px;';
+  modal.innerHTML=`
+    <div style="background:#0f0a1e;border:1.5px solid rgba(255,200,0,0.3);border-radius:20px;padding:20px;width:100%;max-width:360px;max-height:80vh;overflow-y:auto;">
+      <div style="font-size:11px;color:rgba(255,200,0,0.7);font-weight:700;margin-bottom:4px;">${msg.from} · ${msg.time}</div>
+      <div style="font-family:'Boogaloo',cursive;font-size:20px;color:#fff;margin-bottom:10px;">${msg.title}</div>
+      <div style="font-size:13px;color:rgba(255,255,255,0.7);line-height:1.6;margin-bottom:14px;">${msg.body}</div>
+      ${msg.reward?`
+        <div style="background:rgba(255,200,0,0.08);border:1.5px solid rgba(255,200,0,0.2);border-radius:12px;padding:12px;margin-bottom:14px;display:flex;align-items:center;gap:12px;">
+          <div style="width:48px;height:48px;border-radius:50%;background:${ALL_SKINS.find(s=>s.id===msg.reward.skinId)?.g||'#7c5cfc'};flex-shrink:0;box-shadow:0 0 12px rgba(255,100,0,0.4);"></div>
+          <div>
+            <div style="font-family:'Boogaloo',cursive;font-size:16px;color:#ffd700;">🎁 ${msg.reward.skinName}</div>
+            <div style="font-size:11px;color:rgba(255,255,255,0.4);">Skin Legendary Eksklusif</div>
+          </div>
+        </div>
+        ${isClaimed
+          ?'<div style="text-align:center;font-family:\'Boogaloo\',cursive;font-size:16px;color:#00d4aa;">✓ Sudah diambil</div>'
+          :`<button onclick="claimReward('${id}',${msg.reward.skinId})" style="width:100%;background:linear-gradient(135deg,#ff4500,#0080ff);border:none;border-radius:12px;padding:14px;font-family:'Boogaloo',cursive;font-size:18px;color:#fff;cursor:pointer;">🎁 AMBIL HADIAH</button>`
+        }`:''}
+      <button onclick="document.getElementById('msgModal').remove();renderInbox();" style="width:100%;margin-top:10px;background:rgba(255,255,255,0.07);border:1.5px solid rgba(255,255,255,0.1);border-radius:12px;padding:10px;font-family:'Boogaloo',cursive;font-size:15px;color:rgba(255,255,255,0.6);cursor:pointer;">Tutup</button>
+    </div>`;
+  document.body.appendChild(modal);
+}
+
+function claimReward(msgId, skinId){
+  // Mark claimed
+  const claimed = JSON.parse(localStorage.getItem('tb_inbox_claimed')||'[]');
+  if(claimed.includes(msgId)) return;
+  claimed.push(msgId);
+  localStorage.setItem('tb_inbox_claimed', JSON.stringify(claimed));
+
+  // Unlock skin
+  if(typeof ALL_SKINS!=='undefined'){
+    const sk = ALL_SKINS.find(s=>s.id===skinId);
+    if(sk){ sk.owned=true; }
+  }
+
+  // Save to Firebase
+  if(typeof saveProfileToFirebase==='function'){
+    const skinOwned = typeof ALL_SKINS!=='undefined' ? ALL_SKINS.map(s=>s.owned) : [];
+    saveProfileToFirebase({skinOwned, ['claimedMsg_'+msgId]: true});
+  }
+
+  // Update vault count
+  if(typeof updateVaultCount==='function') updateVaultCount();
+
+  showToast('🎉 Skin Inferno & Frost berhasil diambil! Cek Vault!');
+  document.getElementById('msgModal')?.remove();
+  renderInbox();
+  initInbox();
+}
+
+// Init inbox saat halaman load
+setTimeout(initInbox, 1500);
 </script>
 </body>
 </html>
