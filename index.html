@@ -1412,6 +1412,7 @@ input[type=range]::-webkit-slider-thumb{
   transition:transform 0.15s;display:none;
 }
 .btn-start.show{display:block;}
+.btn-start.host-show{display:block;}
 .btn-start:active{transform:scale(0.96);}
 
 /* Right: Invite panel */
@@ -2629,22 +2630,11 @@ function listenRoom(code){
     const tag=document.getElementById('playerCountTag');
     if(tag) tag.textContent=players.length+'/'+room.maxPlayers;
 
-    // Tombol Mulai: host bisa mulai kapan saja kalau ada minimal 1 pemain lain dan semua siap
+    // Host selalu bisa mulai, update teks tombol saja
     const btnStart = document.getElementById('btnStart');
     if(btnStart&&window._isHost){
       const allReady = guests.length>0 && guests.every(p=>p.ready);
-      if(allReady && players.length>=2){
-        if(!btnStart.classList.contains('show')){
-          btnStart.className='btn-start show';
-          showToast('✅ Semua siap! Tekan Mulai!');
-        }
-      } else if(players.length<2){
-        btnStart.className='btn-start';
-        btnStart.textContent='Tunggu teman join...';
-      } else {
-        btnStart.className='btn-start';
-        btnStart.textContent='Tunggu semua siap...';
-      }
+      btnStart.textContent = allReady ? '▶ Mulai!' : `▶ Mulai! (${guests.filter(p=>p.ready).length}/${guests.length} siap)`;
     }
 
     // Kalau game sudah dimulai oleh host, guest ikut masuk
@@ -2719,9 +2709,21 @@ function setupLobby(opt){
     <div class="ltag">⚡ <b>${opt.speed}</b></div>
   `;
 
-  document.getElementById('btnReady').className='btn-ready not-ready';
-  document.getElementById('btnReady').textContent='Belum Siap';
-  document.getElementById('btnStart').className='btn-start';
+  const btnReady=document.getElementById('btnReady');
+  const btnStart=document.getElementById('btnStart');
+
+  if(opt.isHost){
+    // Host: langsung tampilkan tombol Mulai, sembunyikan tombol Siap
+    btnReady.style.display='none';
+    btnStart.className='btn-start host-show';
+    btnStart.textContent='▶ Mulai!';
+  } else {
+    // Guest: tampilkan tombol Siap, sembunyikan Mulai
+    btnReady.style.display='';
+    btnReady.className='btn-ready not-ready';
+    btnReady.textContent='Belum Siap';
+    btnStart.className='btn-start';
+  }
 
   renderSlots(opt.maxPlayers, opt.isHost);
   buildInviteList();
