@@ -2504,8 +2504,11 @@ function joinRoom(){
 
 // Listen to room changes in Firebase
 function listenRoom(code){
+  // Unsubscribe listener lama dulu
+  if(window._roomUnsub){ window._roomUnsub(); window._roomUnsub=null; }
+
   const r = window._db_ref(window._db,'rooms/'+code);
-  window._roomListener = window._db_onValue(r, snap=>{
+  window._roomUnsub = window._db_onValue(r, snap=>{
     if(!snap.exists()) return;
     const room = snap.val();
     const players = Object.values(room.players||{});
@@ -2538,16 +2541,29 @@ function listenRoom(code){
     const tag=document.getElementById('playerCountTag');
     if(tag) tag.textContent=players.length+'/'+room.maxPlayers;
 
-    // If game started by host
-    if(room.status==='playing' && window._fbUser?.uid !== room.hostUid){
+    // Cek semua ready dari Firebase data (bukan dari DOM)
+    const guests = players.filter(p=>!p.isHost);
+    const allReady = guests.length>0 && guests.every(p=>p.ready);
+    const btnStart = document.getElementById('btnStart');
+    if(btnStart){
+      // Tombol Mulai hanya tampil untuk host dan semua tamu sudah ready
+      if(window._isHost && allReady && players.length>=2){
+        btnStart.className='btn-start show';
+      } else {
+        btnStart.className='btn-start';
+      }
+    }
+
+    // Kalau game sudah dimulai oleh host, guest ikut masuk
+    if(room.status==='playing' && meUid !== room.hostUid){
       showToast('🎮 Game dimulai!');
       startGame();
     }
   });
+  window._roomListener = window._roomUnsub; // backward compat
 }
 
 // Override toggleReady to sync to Firebase
-const _origToggleReady = window.toggleReady;
 window.toggleReady = function(){
   isReady=!isReady;
   const btn=document.getElementById('btnReady');
@@ -2565,7 +2581,7 @@ window.toggleReady = function(){
     if(myBadge){myBadge.className='slot-badge badge-wait';myBadge.textContent='BELUM';}
     document.getElementById('btnStart').className='btn-start';
   }
-  // Sync to Firebase
+  // Sync to Firebase — listenRoom akan update tombol Mulai otomatis
   const code = window._currentRoomCode;
   const uid = window._fbUser?.uid;
   if(code&&uid){
@@ -2574,17 +2590,20 @@ window.toggleReady = function(){
 }
 
 // Leave lobby - cleanup Firebase
-const _origLeaveLobby = window.leaveLobby;
 window.leaveLobby = function(){
+  // Unsubscribe room listener
+  if(window._roomUnsub){ window._roomUnsub(); window._roomUnsub=null; }
+
   const code = window._currentRoomCode;
   const uid = window._fbUser?.uid;
   if(code&&uid){
     window._db_set(window._db_ref(window._db,'rooms/'+code+'/players/'+uid), null);
-    // If host, delete whole room
     if(window._isHost){
       window._db_set(window._db_ref(window._db,'rooms/'+code), null);
     }
   }
+  window._currentRoomCode = null;
+  window._isHost = false;
   isReady=false; botCount=0;
   goBack('pageLobby','pageMenu');
 }
