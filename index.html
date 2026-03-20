@@ -2563,12 +2563,15 @@ function createRoom(){
     return;
   }
 
-  // Save room to Firebase
+  // Save room to Firebase — simpan mapId sekarang supaya semua player dapat map sama
   const me = window._fbUser;
+  // Tentukan map ID di sini (deterministik, bukan random di tiap HP)
+  const allMapIds=['forest','space','water','ground','swamp','dungeon','sky','snow','desert','deathdg','jungle','maze','house','kingdom','volcano','deepSea','temple','market','meadow','underground','giant','chaos','mirror','tunnel','crystal','lava_lake','void','ancient','storm'];
+  const chosenMapId=mapRandom?allMapIds[Math.floor(Math.random()*allMapIds.length)]:'forest';
   const roomRef = window._db_ref(window._db, 'rooms/'+code);
   window._db_set(roomRef, {
     name, code, maxPlayers: playerCount,
-    mapRandom, speed,
+    mapRandom, mapId: chosenMapId, speed,
     hostUid: me.uid,
     hostName: me.username,
     status: 'waiting',
@@ -2579,6 +2582,7 @@ function createRoom(){
         name: me.username,
         avatar: me.avatar||'🎭',
         playerCode: me.playerCode||'',
+        equippedSkinId: me.equippedSkinId||0,
         ready: false,
         isHost: true,
         joinedAt: Date.now(),
@@ -2612,7 +2616,7 @@ function joinRoom(){
     const playerCount = Object.keys(room.players||{}).length;
     if(playerCount >= room.maxPlayers){ showToast('❌ Room penuh!'); return; }
 
-    // Add me to room
+    // Add me to room — termasuk skin info
     window._db_set(
       window._db_ref(window._db,'rooms/'+code+'/players/'+me.uid),
       {
@@ -2620,6 +2624,7 @@ function joinRoom(){
         name: me.username,
         avatar: me.avatar||'🎭',
         playerCode: me.playerCode||'',
+        equippedSkinId: me.equippedSkinId||equippedSkinId||0,
         ready: false,
         isHost: false,
         joinedAt: Date.now(),
@@ -2926,7 +2931,7 @@ function startGame(){
         myUid: window._fbUser?.uid,
         isHost: true,
         settings: {
-          map: room.mapRandom?'random':'forest',
+          map: room.mapId||'forest', // pakai mapId yang sudah ditentukan saat buat room
           rounds: room.rounds||1,
         },
       };
@@ -2936,6 +2941,7 @@ function startGame(){
         playerOrder: playerList,
         startedAt: Date.now(),
         rounds: room.rounds||1,
+        mapId: room.mapId||'forest', // pastikan mapId tersimpan
       }).then(()=>{ window.location.href='bottlecap-game.html'; });
     });
   } else if(code) {
@@ -2946,7 +2952,7 @@ function startGame(){
         roomCode: code,
         myUid: window._fbUser?.uid,
         isHost: false,
-        settings: {map: room.mapRandom?'random':'forest', rounds: 1},
+        settings: {map: room.mapId||'forest', rounds: room.rounds||1},
         firstTurn: room.firstTurn,
       };
       localStorage.setItem('tb_online_game', JSON.stringify(onlineData));

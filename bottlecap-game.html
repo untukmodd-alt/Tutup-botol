@@ -432,12 +432,15 @@ function showSel(){
           const myIdx=humanPlayers.findIndex(p=>p.uid===od.myUid);
           myPlayerIdx=myIdx>=0?myIdx:(od.isHost?0:-1);
           if(myPlayerIdx<0) myPlayerIdx=od.isHost?0:1;
-          // Tandai index mana yang bot — host boleh gerak bot
+          // Tandai index mana yang bot
           window._botIndices=new Set(botPlayers.map((_,bi)=>humanPlayers.length+bi));
+          // Simpan skin tiap player untuk ditampilkan di game
+          window._playerSkins=orderedPlayers.map(p=>p.equippedSkinId||0);
         }
 
-        const map=room.mapRandom?'random':(od.settings?.map||selMaps[0]||'forest');
-        selMaps=[map==='random'?MAPS[Math.floor(Math.random()*(MAPS.length-1))].id:map];
+        // Pakai mapId yang sudah ditentukan host — BUKAN random lagi
+        const mapId=room.mapId||od.settings?.map||'forest';
+        selMaps=[mapId==='random'?MAPS[Math.floor(Math.random()*(MAPS.length-1))].id:mapId];
         totalRounds=parseInt(od.settings?.rounds||room.rounds||1);
         launchOnlineGame({...od,firstTurn:room.firstTurn});
       }).catch(e=>{showLoadingScreen('Error: '+e.message);});
@@ -675,11 +678,49 @@ function initPlayers(){
   const pos=[[WW*.12,WH*.5],[WW*.88,WH*.5],[WW*.5,WH*.12],[WW*.5,WH*.88],[WW*.18,WH*.2],[WW*.82,WH*.8]];
   for(let i=0;i<nP;i++){
     const nm=customNames[i]||PN[i];
-    // Online: skin ke myPlayerIdx, solo: skin ke index 0
-    const myIdx = onlineMode ? myPlayerIdx : 0;
-    const skin=(i===myIdx&&p1skin)?p1skin:null;
+    let skin=null;
+    if(onlineMode){
+      if(i===myPlayerIdx&&p1skin){
+        skin=p1skin; // Skin kita sendiri dari localStorage
+      } else if(window._playerSkins&&window._playerSkins[i]!=null){
+        // Skin player lain — buat dari id skin
+        const sid=window._playerSkins[i];
+        skin=buildSkinFromId(sid);
+      }
+    } else {
+      if(i===0&&p1skin) skin=p1skin;
+    }
     players.push({x:pos[i][0],y:pos[i][1],vx:0,vy:0,color:PC[i],name:nm,alive:true,kills:0,idx:i,trail:[],roundKills:0,skin});
   }
+}
+
+// Buat skin object dari ID — pakai ALL_SKINS_DATA yang disimpan game
+const GAME_SKINS=[
+  {id:0,name:'Emerald',colors:['#a8e6cf','#4ecca3','#0d5c45'],drawType:'radial'},
+  {id:1,name:'Lava',colors:['#ffb3b3','#e94560','#3d0000'],drawType:'radial'},
+  {id:2,name:'Ocean',colors:['#b3d9ff','#74b9ff','#023e6e'],drawType:'radial'},
+  {id:3,name:'Emas ✨',colors:['#fff3b3','#f5c518','#6b4c00'],drawType:'radial'},
+  {id:4,name:'Galaxy',colors:['#d6b4ff','#a29bfe','#2d1b6e'],drawType:'glow',glowColor:'rgba(120,80,255,0.4)'},
+  {id:5,name:'Coral 🔥',colors:['#ffe0b3','#fd9644','#641e16'],drawType:'radial'},
+  {id:6,name:'Ice ❄️',colors:['#e8f8ff','#b3e0ff','#1a5276'],drawType:'radial'},
+  {id:7,name:'Toxic ☠️',colors:['#d4ffb3','#7ed321','#1a3500'],drawType:'radial'},
+  {id:8,name:'Rose 🌹',colors:['#ffb3d9','#e91e8c','#3d0025'],drawType:'radial'},
+  {id:9,name:'Shadow',colors:['#5a5a5a','#2d2d2d','#000000'],drawType:'radial'},
+  {id:10,name:'Aurora 🌌',colors:['#b3fff0','#00e5cc','#001a1a'],drawType:'glow',glowColor:'rgba(0,200,200,0.35)'},
+  {id:11,name:'Magma',colors:['#ffcc80','#ff6f00','#3d0f00'],drawType:'radial'},
+  {id:12,name:'Black Hole 🌑',colors:['#6600cc','#220044','#000000'],drawType:'radial',effect:'blackhole',bh:true},
+  {id:13,name:'Inferno & Frost ⚡',colors:['#ff4500','#00bfff'],drawType:'split',effect:'infernoFrost'},
+];
+function buildSkinFromId(id){
+  const sk=GAME_SKINS.find(s=>s.id===id);
+  if(!sk)return null;
+  // Buat g string dari colors
+  const g=sk.colors.length>=3
+    ?`radial-gradient(circle at 35% 30%,${sk.colors[0]},${sk.colors[1]} 40%,${sk.colors[2]})`
+    :`linear-gradient(135deg,${sk.colors[0]},${sk.colors[1]})`;
+  return {g, name:sk.name, bh:sk.bh||false, id:sk.id,
+    effect:sk.effect||null, drawType:sk.drawType||'radial',
+    colors:sk.colors, glowColor:sk.glowColor||null};
 }
 
 // ===== PORTALS (death dungeon) =====
@@ -1608,9 +1649,9 @@ function nextT(){
     _lastSyncTime=0;
     pushOnlineState();
   }
-  // Kalau giliran bot, jalankan AI
+  // Kalau giliran bot, jalankan AI dengan delay lebih pendek
   if(window._botIndices&&window._botIndices.has(curP)){
-    setTimeout(()=>doBotMove(curP), 900+Math.random()*600);
+    setTimeout(()=>doBotMove(curP), 500+Math.random()*500);
   }
 }
 
@@ -1618,22 +1659,38 @@ function doBotMove(botIdx){
   if(!running||moving||curP!==botIdx)return;
   const bot=players[botIdx];if(!bot||!bot.alive)return;
 
-  // Cari target: musuh hidup terdekat
-  let target=null,minDist=Infinity;
-  players.forEach((p,i)=>{
-    if(i===botIdx||!p.alive)return;
+  // Cari semua target hidup
+  const targets=players.filter((p,i)=>i!==botIdx&&p.alive);
+  if(!targets.length)return;
+
+  // Strategi: pilih target terdekat tapi juga pertimbangkan obstacle
+  let target=null,bestScore=Infinity;
+  targets.forEach(p=>{
     const d=Math.hypot(p.x-bot.x,p.y-bot.y);
-    if(d<minDist){minDist=d;target=p;}
+    // Score = jarak (lebih dekat lebih bagus)
+    if(d<bestScore){bestScore=d;target=p;}
   });
 
   let angle,power;
   if(target){
-    // Arahkan ke target + sedikit noise
-    angle=Math.atan2(target.y-bot.y,target.x-bot.x)+((Math.random()-.5)*0.4);
-    // Power proporsional jarak, antara 8-20
-    power=Math.min(20,Math.max(8, minDist*0.04 + Math.random()*4));
+    const dist=Math.hypot(target.x-bot.x,target.y-bot.y);
+    // Akurasi berdasarkan jarak: makin jauh makin meleset
+    const noise=Math.min(0.6, dist/1200);
+    angle=Math.atan2(target.y-bot.y,target.x-bot.x)+((Math.random()-.5)*noise*2);
+
+    // Power: cukup untuk mencapai target
+    // Kalau dekat: power rendah, kalau jauh: power tinggi
+    const basePower=Math.min(MP, Math.max(8, dist*0.025+6));
+    power=basePower+(Math.random()-.5)*3;
+
+    // Kadang bot buat pantulan dinding (20% chance)
+    if(Math.random()<0.2&&dist>400){
+      // Tendang ke dinding lalu mantul ke target
+      const wallAngle=bot.x<WW/2?0:Math.PI; // dinding kiri atau kanan
+      angle=wallAngle+(Math.random()-.5)*0.5;
+      power=MP*0.7+Math.random()*MP*0.2;
+    }
   } else {
-    // Random kalau tidak ada target
     angle=Math.random()*Math.PI*2;
     power=10+Math.random()*8;
   }
