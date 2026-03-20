@@ -351,25 +351,68 @@ function showSel(){
     if(!raw){showSel();return;}
     const od=JSON.parse(raw);
     if(!od||!od.roomCode){showSel();return;}
+
     onlineMode=true; onlineRoomCode=od.roomCode;
-    if(od.players&&od.players.length){
-      nP=od.players.length;
-      od.players.forEach((p,i)=>{customNames[i]=p.name||p.username||('Player '+(i+1));});
-      myPlayerIdx=od.players.findIndex(p=>p.uid===od.myUid);
-      if(myPlayerIdx<0)myPlayerIdx=0;
-    }
-    if(od.settings?.map){const m=od.settings.map;selMaps=[m==='random'?MAPS[Math.floor(Math.random()*(MAPS.length-1))].id:m];}
-    if(od.settings?.rounds)totalRounds=parseInt(od.settings.rounds)||1;
+
+    // Show loading screen instead of map select
+    document.getElementById('msel').style.display='none';
+    showLoadingScreen('Memuat game online...');
+
+    // Load Firebase
     const s=document.createElement('script');s.type='module';
     s.textContent=`import{initializeApp,getApps}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-app.js';import{getDatabase,ref,onValue,update,set,get}from'https://www.gstatic.com/firebasejs/10.12.0/firebase-database.js';const cfg={apiKey:"AIzaSyAlqKxBvqB2LmX5rJJxCRK7fqkLpDq3yzg",authDomain:"musikku-364eb.firebaseapp.com",projectId:"musikku-364eb",databaseURL:"https://musikku-364eb-default-rtdb.asia-southeast1.firebasedatabase.app",storageBucket:"musikku-364eb.firebasestorage.app",messagingSenderId:"622841169824",appId:"1:622841169824:web:c95ee04dcb020f273b86c5"};const app=getApps().length?getApps()[0]:initializeApp(cfg);const db=getDatabase(app);window._gDb=db;window._gRef=ref;window._gUpdate=update;window._gSet=set;window._gGet=get;window._gOnValue=onValue;window.dispatchEvent(new Event('fbGameReady'));`;
     document.head.appendChild(s);
-    window.addEventListener('fbGameReady',()=>launchOnlineGame(od),{once:true});
-    setTimeout(()=>{if(!running)launchOnlineGame(od);},4000);
+
+    window.addEventListener('fbGameReady',()=>{
+      // Always read room data fresh from Firebase
+      window._gGet(window._gRef(window._gDb,'rooms/'+od.roomCode)).then(snap=>{
+        if(!snap.exists()){showLoadingScreen('Room tidak ditemukan!');return;}
+        const room=snap.val();
+        // Merge room player data
+        const roomPlayers=Object.values(room.playerOrder||room.players||{});
+        if(roomPlayers.length>0){
+          nP=roomPlayers.length;
+          roomPlayers.forEach((p,i)=>{customNames[i]=p.name||p.username||('Player '+(i+1));});
+          myPlayerIdx=roomPlayers.findIndex(p=>p.uid===od.myUid);
+          if(myPlayerIdx<0)myPlayerIdx=0;
+        }
+        const map=room.mapRandom?'random':(od.settings?.map||'forest');
+        selMaps=[map];
+        totalRounds=od.settings?.rounds||1;
+        launchOnlineGame({...od,isHost:od.isHost,firstTurn:room.firstTurn});
+      }).catch(e=>{showLoadingScreen('Error: '+e.message);});
+    },{once:true});
+
+    // Fallback
+    setTimeout(()=>{if(!running){showLoadingScreen('Timeout, coba lagi');setTimeout(()=>window.location.href='index.html',2000);}},8000);
   }catch(e){console.error(e);showSel();}
 })();
 
+function showLoadingScreen(msg){
+  let el=document.getElementById('loadingScreen');
+  if(!el){
+    el=document.createElement('div');
+    el.id='loadingScreen';
+    el.style.cssText='position:fixed;inset:0;z-index:999;background:#0a0814;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:16px;';
+    el.innerHTML=`
+      <div style="width:48px;height:48px;border:3px solid rgba(124,92,252,0.2);border-top-color:#7c5cfc;border-radius:50%;animation:spin 0.8s linear infinite;"></div>
+      <div id="loadingMsg" style="font-family:'Boogaloo',cursive;font-size:20px;color:#fff;"></div>
+      <div style="font-size:12px;color:rgba(255,255,255,0.3);">Tutup Botol Online</div>
+      <style>@keyframes spin{to{transform:rotate(360deg)}}</style>`;
+    document.body.appendChild(el);
+  }
+  const msgEl=el.querySelector('#loadingMsg')||el;
+  msgEl.textContent=msg;
+}
+
+function hideLoadingScreen(){
+  const el=document.getElementById('loadingScreen');
+  if(el){el.style.opacity='0';el.style.transition='opacity 0.3s';setTimeout(()=>el.remove(),300);}
+}
+
 function launchOnlineGame(od){
   if(running)return;
+  hideLoadingScreen();
   document.getElementById('msel').style.display='none';
   document.getElementById('hud').style.display='flex';
   document.getElementById('minimap').style.display='block';
@@ -377,8 +420,9 @@ function launchOnlineGame(od){
   if(wTimer){clearInterval(wTimer);wTimer=null;}
   if(dmInterval){clearInterval(dmInterval);dmInterval=null;}
   curRound=1;totalKills=Array(nP).fill(0);roundKills=Array(nP).fill(0);
-  const mapId=od.settings?.map&&od.settings.map!=='random'?od.settings.map:(selMaps[0]||'forest');
-  curMapId=MAPS.find(m=>m.id===mapId)?mapId:MAPS[Math.floor(Math.random()*(MAPS.length-1))].id;
+  const mapId=selMaps[0]||'forest';
+  curMapId=mapId==='random'?MAPS[Math.floor(Math.random()*(MAPS.length-1))].id:mapId;
+  if(curMapId==='random'||!MAPS.find(m=>m.id===curMapId)) curMapId='forest';
   selectedRoundMaps=Array(totalRounds).fill(curMapId);
   initPlayers();genObs();mazeWalls=[];
   if(curMapId==='maze')buildMaze();
@@ -391,18 +435,22 @@ function launchOnlineGame(od){
   if(curMapId==='space'){for(let i=0;i<8;i++){const a=Math.random()*Math.PI*2,sp=0.6+Math.random()*1.2;movingObs.push({x:WW*.1+Math.random()*WW*.8,y:WH*.1+Math.random()*WH*.8,vx:Math.cos(a)*sp,vy:Math.sin(a)*sp,r:20+Math.random()*25,tp:'asteroid',rot:Math.random()*Math.PI*2,rotSpd:(Math.random()-.5)*0.03});}}
   if(curMapId==='house')mapSpecial.darkRoom=true;
   if(curMapId==='kingdom')mapSpecial.deathZone=true;
-  curP=Math.floor(Math.random()*nP);
+
+  // Giliran acak — host set, guest baca dari Firebase
+  if(od.isHost){
+    curP=Math.floor(Math.random()*nP);
+    if(window._gDb){
+      window._gUpdate(window._gRef(window._gDb,'rooms/'+onlineRoomCode),{firstTurn:curP,status:'playing'});
+      pushOnlineState();
+    }
+  } else {
+    // Guest: pakai firstTurn dari room data, atau tunggu sync
+    curP=od.firstTurn!==undefined?od.firstTurn:0;
+  }
+
   const ci=myPlayerIdx>=0&&myPlayerIdx<players.length?myPlayerIdx:0;
   cx=ctx2=players[ci].x-wc.width/2;cy=cty=players[ci].y-wc.height/2+HH/2;clampC();
   buildHUD();running=true;moving=false;
-  if(od.isHost&&window._gDb){
-    window._gUpdate(window._gRef(window._gDb,'rooms/'+onlineRoomCode),{firstTurn:curP});
-    pushOnlineState();
-  } else if(window._gDb){
-    window._gGet(window._gRef(window._gDb,'rooms/'+onlineRoomCode)).then(snap=>{
-      if(snap.exists()&&snap.val().firstTurn!==undefined){curP=snap.val().firstTurn;updHUD();showTA();}
-    });
-  }
   listenOnlineState();
   showTA();if(af)cancelAnimationFrame(af);loop();
 }
@@ -463,8 +511,12 @@ let selectedRoundMaps=[];
 function beginRound(){
   curRound++;
   roundKills=Array(nP).fill(0);
+
+  // Mode 2: map berganti tiap ronde sesuai selectedRoundMaps
   const mapId=selectedRoundMaps[curRound-1]||selMaps[0]||'forest';
   curMapId=mapId==='random'?MAPS[Math.floor(Math.random()*(MAPS.length-1))].id:mapId;
+  // Pastikan mapId valid
+  if(!MAPS.find(m=>m.id===curMapId)) curMapId='forest';
 
   initPlayers();
   genObs();
@@ -474,10 +526,8 @@ function beginRound(){
   parts=[];portals=[];
   cx=ctx2=players[0].x-wc.width/2;cy=cty=players[0].y-wc.height/2+HH/2;clampC();
 
-  // Spawn portals for death dungeon
   if(curMapId==='deathdg') spawnPortals();
 
-  // Init map special mechanics
   mapSpecial={icePhysics:false,lavaTimer:0,windX:0,stormTimer:0};
   movingObs=[];
   if(curMapId==='snow'||curMapId==='jungle') mapSpecial.icePhysics=true;
@@ -485,42 +535,25 @@ function beginRound(){
   if(curMapId==='volcano') mapSpecial.lavaTimer=0;
   if(curMapId==='deepSea') mapSpecial.drag=true;
   if(curMapId==='space'){
-    // Keunikan Angkasa: asteroid bergerak melayang
     for(let i=0;i<8;i++){
       const a=Math.random()*Math.PI*2, spd=0.6+Math.random()*1.2;
-      movingObs.push({
-        x:WW*.1+Math.random()*WW*.8, y:WH*.1+Math.random()*WH*.8,
-        vx:Math.cos(a)*spd, vy:Math.sin(a)*spd,
-        r:20+Math.random()*25, tp:'asteroid', rot:Math.random()*Math.PI*2, rotSpd:(Math.random()-.5)*0.03
-      });
+      movingObs.push({x:WW*.1+Math.random()*WW*.8,y:WH*.1+Math.random()*WH*.8,vx:Math.cos(a)*spd,vy:Math.sin(a)*spd,r:20+Math.random()*25,tp:'asteroid',rot:Math.random()*Math.PI*2,rotSpd:(Math.random()-.5)*0.03});
     }
   }
-  if(curMapId==='dungeon'){
-    // Keunikan Dungeon: lampu obor berkedip (visual state)
-    mapSpecial.torchFlicker=0;
-  }
-  if(curMapId==='house'){
-    // Keunikan Rumah: gelap, hanya area sekitar pemain terang
-    mapSpecial.darkRoom=true;
-  }
-  if(curMapId==='kingdom'){
-    // Keunikan Kerajaan: area terlarang (zona tengah = zona kematian otomatis)
-    mapSpecial.deathZone=true;
-  }
+  if(curMapId==='dungeon') mapSpecial.torchFlicker=0;
+  if(curMapId==='house') mapSpecial.darkRoom=true;
+  if(curMapId==='kingdom') mapSpecial.deathZone=true;
 
-  buildHUD();running=true;moving=false;curP=0;
+  buildHUD();running=true;moving=false;
+  // Giliran acak tiap ronde
+  curP=Math.floor(Math.random()*players.length);
 
-  // Deathmatch timer
   if(gameMode===3){
     dmTimer=dmDuration;
     updHUD();
     dmInterval=setInterval(()=>{
-      dmTimer--;
-      updHUD();
-      if(dmTimer<=0){
-        clearInterval(dmInterval);dmInterval=null;
-        endDeathmatch();
-      }
+      dmTimer--;updHUD();
+      if(dmTimer<=0){clearInterval(dmInterval);dmInterval=null;endDeathmatch();}
     },1000);
   }
 
@@ -943,8 +976,11 @@ function phys(){
   for(const p of players){
     if(p===ap||!p.alive)continue;
     if(Math.hypot(ap.x-p.x,ap.y-p.y)<BR*1.85){
-      p.alive=false;ap.kills++;ap.roundKills++;
-      roundKills[ap.idx]++;totalKills[ap.idx]++;
+      p.alive=false;
+      // Pakai indexOf bukan .idx supaya selalu akurat
+      const apIdx=players.indexOf(ap);
+      ap.kills++;ap.roundKills++;
+      if(apIdx>=0){roundKills[apIdx]++;totalKills[apIdx]++;}
       if(ap.skin&&ap.skin.bh){
         spawnBHKill(p.x,p.y);playSound('bhkill');
       } else {
@@ -1004,12 +1040,24 @@ function endDeathmatch(){
 
 function showFinalWin(){
   const maxK=Math.max(...totalKills);
-  const winnerIdx=totalKills.indexOf(maxK);
-  const winner=players[winnerIdx]||players[0];
+  // Cari SEMUA pemain dengan kill tertinggi (bisa seri)
+  const winners=players.filter((p,i)=>totalKills[i]===maxK);
+  const winner=winners[0]||players[0];
+  const isTie=winners.length>1;
+
   document.getElementById('wball').style.background=winner.color;
   document.getElementById('wball').style.boxShadow=`0 0 40px ${winner.color}88,inset -8px -8px 20px rgba(0,0,0,0.3),inset 4px 4px 12px rgba(255,255,255,0.4)`;
-  document.getElementById('wtitle').textContent=`${winner.name} Menang!`;
-  document.getElementById('wscores').innerHTML=players.map((p,i)=>`<div class="w-score${totalKills[i]===maxK?' winner':''}"><div style="width:10px;height:10px;border-radius:50%;background:${p.color}"></div>${p.name}: ${totalKills[i]} kill${totalKills[i]===maxK?' 👑':''}</div>`).join('');
+  document.getElementById('wtitle').textContent=isTie
+    ?`Seri! ${winners.map(w=>w.name).join(' & ')} 🤝`
+    :`${winner.name} Menang! 🏆`;
+
+  // Sort by kills descending for display
+  const sorted=[...players.map((p,i)=>({p,i}))].sort((a,b)=>totalKills[b.i]-totalKills[a.i]);
+  document.getElementById('wscores').innerHTML=sorted.map(({p,i})=>`
+    <div class="w-score${totalKills[i]===maxK?' winner':''}">
+      <div style="width:10px;height:10px;border-radius:50%;background:${p.color}"></div>
+      ${p.name}: ${totalKills[i]} kill${totalKills[i]===maxK?' 👑':''}
+    </div>`).join('');
   document.getElementById('win').classList.add('show');
 }
 

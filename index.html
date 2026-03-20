@@ -364,8 +364,10 @@ window.doLoginGoogle = async function(){
     showMenuPage();
   } catch(e){
     if(e.code === 'auth/popup-closed-by-user') setErr('Login dibatalkan.');
-    else if(e.code === 'auth/popup-blocked') setErr('Popup diblokir browser! Coba matikan popup blocker.');
-    else setErr('Error: '+e.message);
+    else if(e.code === 'auth/popup-blocked') setErr('Popup diblokir! Izinkan popup di browser.');
+    else if(e.code === 'auth/unauthorized-domain') setErr('Domain belum diotorisasi di Firebase. Tambahkan untukmodd-alt.github.io di Firebase Console → Authentication → Settings → Authorized domains.');
+    else if(e.code === 'auth/cancelled-popup-request') setErr('Hanya bisa 1 popup sekaligus, coba lagi.');
+    else setErr('Error: '+(e.message||e.code));
   }
 }
 
@@ -2615,25 +2617,28 @@ function listenRoom(code){
     const tag=document.getElementById('playerCountTag');
     if(tag) tag.textContent=players.length+'/'+room.maxPlayers;
 
-    // Cek semua ready dari Firebase data (bukan dari DOM)
-    const guests = players.filter(p=>!p.isHost);
-    const allReady = guests.length>0 && guests.every(p=>p.ready);
+    // Tombol Mulai: host bisa mulai kapan saja kalau ada minimal 1 pemain lain dan semua siap
     const btnStart = document.getElementById('btnStart');
-    if(btnStart){
-      if(window._isHost && allReady && players.length>=2){
+    if(btnStart&&window._isHost){
+      const allReady = guests.length>0 && guests.every(p=>p.ready);
+      if(allReady && players.length>=2){
         if(!btnStart.classList.contains('show')){
           btnStart.className='btn-start show';
           showToast('✅ Semua siap! Tekan Mulai!');
         }
-      } else if(window._isHost) {
+      } else if(players.length<2){
         btnStart.className='btn-start';
+        btnStart.textContent='Tunggu teman join...';
+      } else {
+        btnStart.className='btn-start';
+        btnStart.textContent='Tunggu semua siap...';
       }
     }
 
     // Kalau game sudah dimulai oleh host, guest ikut masuk
     if(room.status==='playing' && meUid !== room.hostUid){
       showToast('🎮 Game dimulai!');
-      startGame();
+      setTimeout(()=>startGame(), 500);
     }
   });
   window._roomListener = window._roomUnsub; // backward compat
@@ -2860,15 +2865,22 @@ function startGame(){
       }).then(()=>{ window.location.href='bottlecap-game.html'; });
     });
   } else if(code) {
-    // Guest — save own uid so game knows who we are
-    const onlineData = {
-      roomCode: code,
-      myUid: window._fbUser?.uid,
-      isHost: false,
-      dbUrl: 'https://musikku-364eb-default-rtdb.asia-southeast1.firebasedatabase.app',
-    };
-    localStorage.setItem('tb_online_game', JSON.stringify(onlineData));
-    window.location.href='bottlecap-game.html';
+    // Guest — baca settings dari Firebase dulu
+    window._db_get(window._db_ref(window._db,'rooms/'+code)).then(snap=>{
+      const room=snap.exists()?snap.val():{};
+      const onlineData = {
+        roomCode: code,
+        myUid: window._fbUser?.uid,
+        isHost: false,
+        settings: {map: room.mapRandom?'random':'forest', rounds: 1},
+        firstTurn: room.firstTurn,
+      };
+      localStorage.setItem('tb_online_game', JSON.stringify(onlineData));
+      window.location.href='bottlecap-game.html';
+    }).catch(()=>{
+      localStorage.setItem('tb_online_game', JSON.stringify({roomCode:code,myUid:window._fbUser?.uid,isHost:false}));
+      window.location.href='bottlecap-game.html';
+    });
   } else {
     localStorage.removeItem('tb_online_game');
     window.location.href='bottlecap-game.html';
