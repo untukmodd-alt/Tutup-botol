@@ -73,10 +73,22 @@ function applyFirebaseProfile(data){
     spinCount: data.spinCount!=null ? data.spinCount : 3,
     playerCodeDisplay: data.playerCode||'',
   };
-  Object.entries(map).forEach(([id,val])=>{
-    const el = document.getElementById(id);
-    if(el) el.textContent = val;
-  });
+  function doApply(){
+    let allFound=true;
+    Object.entries(map).forEach(([id,val])=>{
+      const el = document.getElementById(id);
+      if(el) el.textContent = val;
+      else if(id==='displayName') allFound=false;
+    });
+    return allFound;
+  }
+  // Retry sampai element ada (maks 20x / 2 detik)
+  if(!doApply()){
+    let tries=0;
+    const retry=setInterval(()=>{
+      if(doApply()||tries++>20) clearInterval(retry);
+    },100);
+  }
   if(data.diamonds!=null && typeof diamonds !== 'undefined') diamonds = data.diamonds;
   if(data.equippedSkinId!=null && typeof setSkin === 'function'){
     equippedSkinId = data.equippedSkinId;
@@ -2598,7 +2610,7 @@ function listenRoom(code){
     players.forEach((p,idx)=>{
       area.appendChild(makeSlot({
         name: p.name,
-        avatar: p.avatar||'🎭',
+        avatar: p.isBot?'🤖':(p.avatar||'🎭'),
         color: slotColors[idx%slotColors.length],
         ready: p.ready,
         isMe: p.uid===meUid,
@@ -2784,10 +2796,18 @@ function makeEmptySlot(idx){
 
 function addBot(outerEl, idx){
   const name=botNames[botCount%botNames.length]; botCount++;
-  const slot=makeSlot({name,color:slotColors[idx%slotColors.length],ready:true,isMe:false,isHost:false,idx});
+  const slot=makeSlot({name,avatar:'🤖',color:slotColors[idx%slotColors.length],ready:true,isMe:false,isHost:false,idx});
   outerEl.closest('.player-slot').replaceWith(slot);
   updatePlayerTag();
   checkAllReady();
+  // Simpan bot ke Firebase room supaya tidak hilang saat sync
+  const code=window._currentRoomCode;
+  if(code&&window._db_set&&window._db_ref&&window._db){
+    const botId='bot_'+Date.now()+'_'+idx;
+    window._db_set(window._db_ref(window._db,'rooms/'+code+'/players/'+botId),{
+      uid:botId, name, avatar:'🤖', isBot:true, ready:true, isHost:false, joinedAt:Date.now()
+    });
+  }
 }
 
 function updatePlayerTag(){
