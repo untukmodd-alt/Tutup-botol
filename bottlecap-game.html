@@ -471,41 +471,54 @@ function launchOnlineGame(od){
   showTA();if(af)cancelAnimationFrame(af);loop();
 }
 
+// Target posisi untuk interpolasi smooth (online mode)
+let remoteTargets={}; // {playerIdx: {x,y,vx,vy}}
+
 function listenOnlineState(){
   if(!window._gDb||!onlineRoomCode)return;
   window._gOnValue(window._gRef(window._gDb,'rooms/'+onlineRoomCode+'/gameState'),snap=>{
     if(!snap.exists()||!running)return;
     const gs=snap.val();if(!gs)return;
-    // Selalu update curP dari Firebase (tidak cek moving supaya sync tetap akurat)
     if(gs.curP!==undefined&&gs.curP!==curP){
       curP=gs.curP;updHUD();
       if(!moving)showTA();
     }
-    // Sync posisi pemain lain
+    // Simpan sebagai TARGET untuk diinterpolasi, bukan langsung set posisi
     if(gs.positions){gs.positions.forEach((pos,i)=>{
       if(i===myPlayerIdx)return;
       if(players[i]){
-        players[i].x=pos.x;players[i].y=pos.y;
-        players[i].vx=pos.vx||0;players[i].vy=pos.vy||0;
         players[i].alive=pos.alive!==false;
         players[i].kills=pos.kills||0;
+        // Simpan target
+        remoteTargets[i]={x:pos.x,y:pos.y,vx:pos.vx||0,vy:pos.vy||0};
       }
     });}
     if(gs.totalKills)gs.totalKills.forEach((k,i)=>{if(k!==undefined)totalKills[i]=k;});
   });
-  // Also listen to firstTurn in case host sets it after guest loads
   window._gOnValue(window._gRef(window._gDb,'rooms/'+onlineRoomCode),snap=>{
     if(!snap.exists())return;
     const room=snap.val();
-    if(room.firstTurn!==undefined&&!running){
-      curP=room.firstTurn;
-    }
+    if(room.firstTurn!==undefined&&!running){curP=room.firstTurn;}
+  });
+}
+
+// Panggil ini tiap frame di loop untuk smooth interpolasi
+function lerpRemotePlayers(){
+  if(!onlineMode)return;
+  const alpha=0.25; // kecepatan lerp (0.1=lambat, 0.4=cepat)
+  Object.entries(remoteTargets).forEach(([idx,target])=>{
+    const i=parseInt(idx);
+    if(!players[i])return;
+    players[i].x+=(target.x-players[i].x)*alpha;
+    players[i].y+=(target.y-players[i].y)*alpha;
+    players[i].vx+=(target.vx-players[i].vx)*alpha;
+    players[i].vy+=(target.vy-players[i].vy)*alpha;
   });
 }
 
 function pushOnlineState(){
   if(!onlineMode||!window._gDb||!onlineRoomCode)return;
-  const now=Date.now();if(now-_lastSyncTime<80)return;_lastSyncTime=now;
+  const now=Date.now();if(now-_lastSyncTime<50)return;_lastSyncTime=now;
   const pos=players.map(p=>({x:Math.round(p.x),y:Math.round(p.y),vx:+(p.vx.toFixed(2)),vy:+(p.vy.toFixed(2)),alive:p.alive,kills:p.kills}));
   window._gUpdate(window._gRef(window._gDb,'rooms/'+onlineRoomCode+'/gameState'),{curP,positions:pos,totalKills,ts:now});
 }
@@ -1198,6 +1211,7 @@ function updHUD(){
 }
 // ===== LOOP =====
 function loop(){
+  if(onlineMode) lerpRemotePlayers(); // Smooth interpolasi tiap frame
   ctx.save();ctx.translate(-Math.round(cx),-Math.round(cy));
   drawBG();drawPortals();
   obs.forEach(o=>drawO(o));
