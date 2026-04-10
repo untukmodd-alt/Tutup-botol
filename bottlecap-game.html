@@ -59,8 +59,8 @@ canvas{display:block;position:fixed;top:0;left:0;touch-action:none;}
 .pct{min-width:38px;height:38px;padding:0 10px;border-radius:9px;background:rgba(255,255,255,0.06);border:1.5px solid rgba(255,255,255,0.1);color:#fff;font-family:'Boogaloo',cursive;font-size:16px;cursor:pointer;display:flex;align-items:center;justify-content:center;transition:all 0.14s;}
 .pct.sel{background:rgba(124,92,252,0.3);border-color:#7c5cfc;color:#c4b0ff;}
 .pct:active{transform:scale(0.9);}
-.mgrid{display:flex;gap:6px;flex-wrap:wrap;justify-content:center;max-width:480px;}
-.mbtn{width:72px;height:58px;border-radius:10px;border:2px solid rgba(255,255,255,0.08);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:2px;transition:all 0.14s;font-family:'Boogaloo',cursive;font-size:9px;color:#fff;}
+.mgrid{display:grid;grid-template-columns:repeat(auto-fill,minmax(80px,1fr));gap:8px;width:100%;max-width:520px;}
+.mbtn{height:68px;border-radius:12px;border:2px solid rgba(255,255,255,0.08);cursor:pointer;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:3px;transition:all 0.14s;font-family:'Boogaloo',cursive;font-size:10px;color:#fff;padding:4px;}
 .mbtn.sel{border-color:#7c5cfc;box-shadow:0 0 10px rgba(124,92,252,0.5);}
 .mbtn:active{transform:scale(0.93);}
 #bgo{background:linear-gradient(135deg,#e94560,#c0392b);border:none;border-radius:12px;padding:12px 34px;color:#fff;font-family:'Boogaloo',cursive;font-size:18px;cursor:pointer;box-shadow:0 5px 18px rgba(233,69,96,0.4);margin-top:2px;}
@@ -147,12 +147,12 @@ canvas{display:block;position:fixed;top:0;left:0;touch-action:none;}
 
 <!-- Map select -->
 <div id="msel">
-  <div style="width:100%;max-width:380px;display:flex;align-items:center;gap:10px;margin-bottom:2px;">
-    <button onclick="window.location.href='index.html'" style="background:rgba(255,255,255,0.08);border:none;border-radius:50%;width:34px;height:34px;color:#fff;font-size:18px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;">‹</button>
-    <h2 style="margin:0;">Tutup Botol</h2>
+  <div style="width:100%;max-width:520px;display:flex;align-items:center;gap:10px;margin-bottom:4px;flex-shrink:0;">
+    <button onclick="window.location.href='index_allfs.html'" style="background:rgba(255,255,255,0.08);border:1px solid rgba(255,255,255,0.15);border-radius:50%;width:38px;height:38px;color:#fff;font-size:20px;cursor:pointer;display:flex;align-items:center;justify-content:center;flex-shrink:0;transition:background 0.15s;" onmousedown="this.style.background='rgba(255,255,255,0.18)'" onmouseup="this.style.background='rgba(255,255,255,0.08)'">‹</button>
+    <h2 style="margin:0;font-family:'Boogaloo',cursive;font-size:22px;">🎮 Tutup Botol</h2>
   </div>
-  <div class="msl" style="max-width:380px;width:100%">Mode Ronde</div>
-  <div class="mode-row" style="max-width:380px;width:100%">
+  <div class="msl" style="max-width:520px;width:100%">Mode Ronde</div>
+  <div class="mode-row" style="max-width:520px;width:100%">
     <div class="mdbtn sel" id="md1" onclick="selMode(1)">
       <div class="mdbtn-title">Mode 1 — Map Sama</div>
       <div class="mdbtn-desc">Semua ronde di map yang dipilih. Menang = kill terbanyak.</div>
@@ -167,7 +167,7 @@ canvas{display:block;position:fixed;top:0;left:0;touch-action:none;}
     </div>
   </div>
   <!-- Deathmatch duration picker (hidden by default) -->
-  <div id="dmRow" style="display:none;max-width:380px;width:100%">
+  <div id="dmRow" style="display:none;max-width:520px;width:100%">
     <div class="msl">Durasi Deathmatch</div>
     <div class="pcrow" id="dmTimeRow">
       <div class="pct" data-s="120" onclick="selDM(this)">2m</div>
@@ -176,8 +176,8 @@ canvas{display:block;position:fixed;top:0;left:0;touch-action:none;}
       <div class="pct" data-s="900" onclick="selDM(this)">15m</div>
     </div>
   </div>
-  <div class="msl" style="max-width:380px;width:100%">Jumlah Ronde & Pemain</div>
-  <div style="display:flex;gap:12px;flex-wrap:wrap;max-width:380px;width:100%">
+  <div class="msl" style="max-width:520px;width:100%">Jumlah Ronde & Pemain</div>
+  <div style="display:flex;gap:12px;flex-wrap:wrap;max-width:520px;width:100%">
     <div>
       <div style="font-size:10px;color:rgba(255,255,255,0.3);margin-bottom:4px;">RONDE</div>
       <div class="pcrow" id="roundRow">
@@ -198,9 +198,9 @@ canvas{display:block;position:fixed;top:0;left:0;touch-action:none;}
       </div>
     </div>
   </div>
-  <div class="msl" style="max-width:380px;width:100%">Nama Pemain</div>
+  <div class="msl" style="max-width:520px;width:100%">Nama Pemain</div>
   <div class="name-inputs" id="nameInputs"></div>
-  <div class="msl" style="max-width:480px;width:100%">Pilih Map (Mode 2: urutan ronde)</div>
+  <div class="msl" style="max-width:520px;width:100%">Pilih Map (Mode 2: urutan ronde)</div>
   <div class="mgrid" id="mgrid"></div>
   <button id="bgo" onclick="startGame()">Mulai!</button>
 </div>
@@ -340,13 +340,24 @@ function initMG(){
       volcano:'radial-gradient(ellipse,#3a1008,#1a0504)',deepSea:'radial-gradient(ellipse,#041428,#020a14)',
       temple:'radial-gradient(ellipse,#2a2008,#141004)',market:'radial-gradient(ellipse,#1a1030,#0c0820)',
       meadow:'radial-gradient(ellipse,#2a4a18,#162c0e)',
+      underground:'radial-gradient(ellipse,#1a0e08,#0a0604)',
+      giant:'radial-gradient(ellipse,#1a1a28,#0c0c14)',
+      chaos:'radial-gradient(ellipse,#2a0a0a,#140404)',
+      mirror:'radial-gradient(ellipse,#1a1e2a,#0c1018)',
+      tunnel:'radial-gradient(ellipse,#141414,#080808)',
+      crystal:'radial-gradient(ellipse,#0c0c30,#060618)',
+      lava_lake:'radial-gradient(ellipse,#2a0e04,#140604)',
+      void:'radial-gradient(ellipse,#060408,#000000)',
+      ancient:'radial-gradient(ellipse,#1e1a0c,#0e0e06)',
+      storm:'radial-gradient(ellipse,#0c1020,#060810)',
     };
     b.style.background=bgMap[m.id]||'#111';
     b.innerHTML=`<span style="font-size:18px">${m.em}</span><div>${m.name}</div>`;
+    b.dataset.mapid=m.id;
     b.onclick=()=>{
       if(selMaps.includes(m.id)){if(selMaps.length>1)selMaps=selMaps.filter(x=>x!==m.id);}
       else selMaps.push(m.id);
-      document.querySelectorAll('.mbtn').forEach((btn,i)=>{if(i<MAPS.length-1)btn.classList.toggle('sel',selMaps.includes(MAPS[i].id));});
+      document.querySelectorAll('.mbtn[data-mapid]').forEach(btn=>{btn.classList.toggle('sel',selMaps.includes(btn.dataset.mapid));});
     };
     g.appendChild(b);
   });

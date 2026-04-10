@@ -500,25 +500,165 @@ html,body{
 }
 .btn-pakai:active{transform:scale(0.95);}
 
-/* CENTER: arena preview — always fills available space */
+/* =====================
+   CENTER: ARENA CAROUSEL
+===================== */
 .arena-panel{
   flex:1;display:flex;flex-direction:column;
   gap:6px;min-height:0;
-}
-.arena-preview{
-  flex:1;
-  min-height:80px; /* guarantee visibility */
-  background:linear-gradient(135deg,rgba(0,212,170,0.08),rgba(0,212,255,0.08));
-  border:1.5px solid rgba(0,212,170,0.35);
-  border-radius:14px;position:relative;overflow:hidden;
+  /* NO flex:1 on the preview itself — controlled height below */
 }
 .arena-preview-label{
   font-size:10px;color:var(--muted);font-weight:700;
   letter-spacing:1px;text-transform:uppercase;text-align:center;
   flex-shrink:0;
 }
+
+/* Carousel wrapper — fixed height, no overflow */
+.arena-carousel-wrap{
+  height:140px;
+  overflow:hidden;
+  border-radius:14px;
+  position:relative;
+  flex-shrink:0;
+}
+
+/* The sliding track */
+.arena-carousel-track{
+  display:flex;
+  height:100%;
+  gap:10px;
+  animation:arenaSlide 28s linear infinite;
+  width:max-content;
+}
+.arena-carousel-track:hover{animation-play-state:paused;}
+
+@keyframes arenaSlide{
+  0%   { transform:translateX(0); }
+  100% { transform:translateX(-50%); }
+}
+
+/* Each map card */
+.arena-map-card{
+  height:100%;
+  width:200px;
+  flex-shrink:0;
+  border-radius:12px;
+  overflow:hidden;
+  position:relative;
+  cursor:pointer;
+  border:1.5px solid rgba(255,255,255,0.12);
+  transition:transform 0.18s, border-color 0.18s;
+  background-size:cover;
+  background-position:center;
+}
+.arena-map-card:active{transform:scale(0.96);}
+.arena-map-card:hover{border-color:rgba(0,212,255,0.55);transform:scale(1.03);}
+
+/* Dark gradient overlay on card */
+.arena-map-card::before{
+  content:'';
+  position:absolute;inset:0;
+  background:linear-gradient(to top, rgba(0,0,0,0.72) 0%, rgba(0,0,0,0.15) 55%, transparent 100%);
+  z-index:1;
+}
+
+.arena-map-info{
+  position:absolute;bottom:8px;left:10px;right:10px;
+  z-index:2;
+  display:flex;align-items:flex-end;justify-content:space-between;
+}
+.arena-map-name{
+  font-family:'Boogaloo',cursive;font-size:14px;color:#fff;
+  text-shadow:0 1px 6px rgba(0,0,0,0.8);line-height:1;
+}
+.arena-map-em{font-size:20px;line-height:1;}
+
+/* Left/right fade edges */
+.arena-carousel-wrap::before,
+.arena-carousel-wrap::after{
+  content:'';position:absolute;top:0;bottom:0;width:28px;z-index:10;pointer-events:none;
+}
+.arena-carousel-wrap::before{left:0;background:linear-gradient(to right,var(--bg),transparent);}
+.arena-carousel-wrap::after{right:0;background:linear-gradient(to left,var(--bg),transparent);}
+
+/* Keep old mini-line/dot classes so buildArenaPreview() doesn't break */
 .mini-line{position:absolute;border-radius:2px;opacity:0.7;}
 .mini-dot{position:absolute;border-radius:50%;box-shadow:0 0 8px currentColor;}
+
+/* =====================
+   MAP POPUP MODAL
+===================== */
+.map-popup-overlay{
+  position:fixed;inset:0;z-index:850;
+  background:rgba(0,0,0,0.8);backdrop-filter:blur(8px);
+  display:flex;align-items:center;justify-content:center;
+  opacity:0;pointer-events:none;
+  transition:opacity 0.22s;
+}
+.map-popup-overlay.show{opacity:1;pointer-events:all;}
+
+.map-popup{
+  background:linear-gradient(145deg,#100830,#08041a);
+  border:1.5px solid rgba(0,212,255,0.35);
+  border-radius:20px;
+  width:90%;max-width:360px;
+  overflow:hidden;
+  transform:scale(0.85) translateY(20px);
+  transition:transform 0.3s cubic-bezier(0.34,1.56,0.64,1);
+  box-shadow:0 24px 60px rgba(0,100,255,0.25);
+}
+.map-popup-overlay.show .map-popup{transform:scale(1) translateY(0);}
+
+.map-popup-hero{
+  height:120px;
+  position:relative;
+  background-size:cover;background-position:center;
+}
+.map-popup-hero::after{
+  content:'';position:absolute;inset:0;
+  background:linear-gradient(to bottom,rgba(0,0,0,0.1),rgba(8,4,26,0.95));
+}
+.map-popup-hero-inner{
+  position:absolute;bottom:12px;left:16px;right:44px;z-index:2;
+}
+.map-popup-mapname{
+  font-family:'Boogaloo',cursive;font-size:22px;color:#fff;
+  line-height:1;text-shadow:0 2px 10px rgba(0,0,0,0.8);
+}
+.map-popup-close{
+  position:absolute;top:10px;right:12px;z-index:3;
+  background:rgba(255,255,255,0.12);border:1px solid rgba(255,255,255,0.2);
+  border-radius:50%;width:30px;height:30px;
+  color:#fff;font-size:16px;cursor:pointer;
+  display:flex;align-items:center;justify-content:center;
+  transition:background 0.15s;
+}
+.map-popup-close:active{background:rgba(255,255,255,0.28);}
+
+.map-popup-body{padding:16px;}
+.map-popup-subtitle{
+  font-size:10px;font-weight:800;color:var(--muted);
+  text-transform:uppercase;letter-spacing:1.2px;margin-bottom:10px;
+}
+.map-mode-grid{
+  display:grid;grid-template-columns:1fr 1fr;gap:8px;
+}
+.map-mode-btn{
+  border:none;border-radius:12px;padding:12px 10px;
+  font-family:'Boogaloo',cursive;font-size:15px;
+  cursor:pointer;display:flex;flex-direction:column;align-items:center;gap:4px;
+  transition:transform 0.15s,box-shadow 0.15s;
+}
+.map-mode-btn:active{transform:scale(0.95);}
+.map-mode-btn .mm-icon{font-size:22px;}
+.map-mode-btn .mm-label{font-size:13px;font-weight:700;line-height:1.1;text-align:center;}
+.map-mode-btn .mm-sub{font-size:9px;opacity:0.75;line-height:1.2;text-align:center;}
+.mmb-1v1{background:linear-gradient(135deg,#1a3a6e,#0d1e45);color:var(--cyan);border:1.5px solid rgba(0,180,255,0.35);box-shadow:0 4px 14px rgba(0,100,255,0.2);}
+.mmb-online{background:linear-gradient(135deg,#1a4a2e,#0d2a1a);color:#00e677;border:1.5px solid rgba(0,212,100,0.35);box-shadow:0 4px 14px rgba(0,200,100,0.2);}
+.mmb-2v2{background:linear-gradient(135deg,#3a1a6e,#1e0d45);color:#cc88ff;border:1.5px solid rgba(150,80,255,0.35);box-shadow:0 4px 14px rgba(120,60,255,0.2);}
+.mmb-custom{background:linear-gradient(135deg,#3a2a1a,#1e1508);color:var(--gold);border:1.5px solid rgba(245,197,24,0.35);box-shadow:0 4px 14px rgba(200,150,0,0.2);}
+.map-mode-btn:hover{transform:translateY(-2px);}
 
 /* RIGHT: lobby + vault stacked */
 .right-stack{
@@ -1445,8 +1585,31 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Ou
 #screenGame  { width:100%; height:100%; position:fixed; top:0; left:0; z-index:100; background:#0a0a1a; visibility:hidden; pointer-events:none; }
 #screenGame.active { pointer-events:all; }
   </style>
+  <!-- Fullscreen button global -->
+  <style>
+  #globalFsBtn {
+    position: fixed;
+    top: 8px; right: 8px;
+    z-index: 99999;
+    width: 34px; height: 34px;
+    border-radius: 8px;
+    background: rgba(0,0,0,0.45);
+    border: 1px solid rgba(255,255,255,0.2);
+    color: #fff; font-size: 16px;
+    cursor: pointer;
+    display: flex; align-items: center; justify-content: center;
+    backdrop-filter: blur(4px);
+    transition: opacity 0.2s;
+  }
+  #globalFsBtn:active { opacity: 0.6; }
+  /* Hide when fullscreen — browser hides status bar anyway */
+  :fullscreen #globalFsBtn,
+  :-webkit-full-screen #globalFsBtn { display: none; }
+  </style>
 </head>
 <body>
+<!-- Tombol fullscreen global — muncul di semua layar -->
+<button id="globalFsBtn" onclick="manualToggleFS()" title="Fullscreen">⛶</button>
 
 <!-- ██████████████████████████████████████████
      SCREEN: LOBBY (semua UI lobby/menu/vault)
@@ -1602,10 +1765,16 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Ou
       <button class="btn-pakai" onclick="equipSkin()">PAKAI</button>
     </div>
 
-    <!-- Arena preview -->
+    <!-- Arena preview carousel -->
     <div class="arena-panel">
-      <div class="arena-preview" id="arenaPreview"></div>
-      <div class="arena-preview-label">Arena Preview</div>
+      <div class="arena-carousel-wrap" id="arenaCarouselWrap">
+        <div class="arena-carousel-track" id="arenaCarouselTrack">
+          <!-- Cards injected by JS -->
+        </div>
+      </div>
+      <!-- Hidden div keeps buildArenaPreview() from throwing errors -->
+      <div id="arenaPreview" style="display:none;"></div>
+      <div class="arena-preview-label">Arena Preview — Pilih Map</div>
     </div>
 
     <!-- Right: Lobby + Vault stacked -->
@@ -1817,6 +1986,45 @@ html,body{width:100%;height:100%;overflow:hidden;background:#000;font-family:'Ou
       <div class="invite-title">👥 Undang Teman</div>
       <div class="invite-list" id="inviteList"></div>
       <button class="btn-share-code" onclick="copyLobbyCode()">Salin Kode</button>
+    </div>
+  </div>
+</div>
+
+<!-- =====================
+     MAP POPUP MODAL
+===================== -->
+<div class="map-popup-overlay" id="mapPopupOverlay" onclick="if(event.target===this)closeMapPopup()">
+  <div class="map-popup" id="mapPopup">
+    <div class="map-popup-hero" id="mapPopupHero">
+      <button class="map-popup-close" onclick="closeMapPopup()">✕</button>
+      <div class="map-popup-hero-inner">
+        <div class="map-popup-mapname" id="mapPopupName">Ice Forest</div>
+      </div>
+    </div>
+    <div class="map-popup-body">
+      <div class="map-popup-subtitle">Pilih Mode</div>
+      <div class="map-mode-grid">
+        <button class="map-mode-btn mmb-1v1" onclick="handleMapMode('1v1')">
+          <span class="mm-icon">⚔️</span>
+          <span class="mm-label">1 VS 1</span>
+          <span class="mm-sub">1 HP · Bergantian</span>
+        </button>
+        <button class="map-mode-btn mmb-online" onclick="handleMapMode('online')">
+          <span class="mm-icon">🌐</span>
+          <span class="mm-label">1 VS Online</span>
+          <span class="mm-sub">Invite teman</span>
+        </button>
+        <button class="map-mode-btn mmb-2v2" onclick="handleMapMode('2v2')">
+          <span class="mm-icon">👥</span>
+          <span class="mm-label">2 VS 2</span>
+          <span class="mm-sub">Tim 2 lawan 2</span>
+        </button>
+        <button class="map-mode-btn mmb-custom" onclick="handleMapMode('custom')">
+          <span class="mm-icon">⚙️</span>
+          <span class="mm-label">Custom</span>
+          <span class="mm-sub">Atur sendiri</span>
+        </button>
+      </div>
     </div>
   </div>
 </div>
@@ -2813,6 +3021,82 @@ function buildArenaPreview(el){
 }
 buildArenaPreview(document.getElementById('arenaPreview'));
 buildArenaPreview(document.getElementById('createPreview'));
+
+// ===== ARENA MAP CAROUSEL =====
+(function(){
+  const MAPS = [
+    {id:'forest',  em:'🌲', name:'Hutan',        bg:'linear-gradient(135deg,#1a3a1a 0%,#2d6a2d 40%,#1a4a1a 100%)'},
+    {id:'space',   em:'🌌', name:'Angkasa',       bg:'linear-gradient(135deg,#060c2a 0%,#0d1a4a 50%,#1a0a3a 100%)'},
+    {id:'water',   em:'🌊', name:'Lautan',        bg:'linear-gradient(135deg,#0d2a4a 0%,#0a4a6a 50%,#0d3a5a 100%)'},
+    {id:'ground',  em:'🏜️', name:'Gurun',         bg:'linear-gradient(135deg,#4a3a1a 0%,#6a4a1a 50%,#5a3a0d 100%)'},
+    {id:'swamp',   em:'🐊', name:'Rawa',          bg:'linear-gradient(135deg,#1a2a0d 0%,#2a3a0a 50%,#1a3a1a 100%)'},
+    {id:'dungeon', em:'⚔️', name:'Dungeon',       bg:'linear-gradient(135deg,#1a0a0a 0%,#2a0d0d 50%,#3a1a1a 100%)'},
+    {id:'sky',     em:'☁️', name:'Langit',        bg:'linear-gradient(135deg,#1a3a6a 0%,#2a5a8a 50%,#3a6a9a 100%)'},
+    {id:'snow',    em:'❄️', name:'Salju',         bg:'linear-gradient(135deg,#1a2a3a 0%,#2a3a5a 50%,#3a4a6a 100%)'},
+    {id:'lava_lake',em:'🔥',name:'Danau Lava',    bg:'linear-gradient(135deg,#3a0a00 0%,#6a1a00 50%,#8a2a00 100%)'},
+    {id:'void',    em:'🌑', name:'Void',          bg:'linear-gradient(135deg,#050505 0%,#0a0a0a 50%,#1a0a2a 100%)'},
+    {id:'crystal', em:'💎', name:'Kristal',       bg:'linear-gradient(135deg,#0a1a3a 0%,#1a2a6a 50%,#2a1a5a 100%)'},
+    {id:'volcano', em:'🌋', name:'Volcano',       bg:'linear-gradient(135deg,#2a0a00 0%,#4a1a00 40%,#6a2a00 100%)'},
+    {id:'kingdom', em:'👑', name:'Kerajaan',      bg:'linear-gradient(135deg,#2a1a00 0%,#4a2a00 50%,#3a1a00 100%)'},
+    {id:'storm',   em:'⚡', name:'Badai',         bg:'linear-gradient(135deg,#0a0a2a 0%,#1a1a4a 50%,#0a0a3a 100%)'},
+    {id:'ancient', em:'🏛️', name:'Kuno',          bg:'linear-gradient(135deg,#2a1a0a 0%,#3a2a0d 50%,#4a3a1a 100%)'},
+    {id:'jungle',  em:'🌿', name:'Jungle',        bg:'linear-gradient(135deg,#0a1a0a 0%,#1a2a0a 50%,#0d2a0d 100%)'},
+  ];
+
+  function buildCarousel(){
+    const track = document.getElementById('arenaCarouselTrack');
+    if(!track) return;
+    // Render 2x for infinite loop
+    const allMaps = [...MAPS, ...MAPS];
+    track.innerHTML = allMaps.map(m => `
+      <div class="arena-map-card"
+           style="background:${m.bg};"
+           onclick="openMapPopup('${m.id}','${m.name}','${m.bg}')">
+        <div class="arena-map-info">
+          <div class="arena-map-name">${m.name}</div>
+          <div class="arena-map-em">${m.em}</div>
+        </div>
+      </div>
+    `).join('');
+    // Set animation duration proportional to map count
+    track.style.animationDuration = (MAPS.length * 3.5)+'s';
+  }
+
+  buildCarousel();
+
+  // Expose map data for popup
+  window._ARENA_MAPS = MAPS;
+})();
+
+// ===== MAP POPUP =====
+function openMapPopup(mapId, mapName, mapBg){
+  document.getElementById('mapPopupName').textContent = mapName;
+  document.getElementById('mapPopupHero').style.background = mapBg;
+  document.getElementById('mapPopupOverlay').classList.add('show');
+  // Store selected map
+  window._selectedMapId = mapId;
+  window._selectedMapName = mapName;
+}
+function closeMapPopup(){
+  document.getElementById('mapPopupOverlay').classList.remove('show');
+}
+function handleMapMode(mode){
+  const map = window._selectedMapName || 'Map';
+  const modeLabels = {'1v1':'1 VS 1 (1 HP, Bergantian)','online':'1 VS Online (Invite Teman)','2v2':'2 VS 2','custom':'Custom'};
+  closeMapPopup();
+  // Route to correct screen
+  if(mode==='online'){
+    openLobbyModal();
+  } else if(mode==='custom'){
+    goToCreate();
+  } else {
+    showToast('▶ '+map+' — '+modeLabels[mode]);
+    startSoloGame && startSoloGame();
+  }
+}
+window.openMapPopup = openMapPopup;
+window.closeMapPopup = closeMapPopup;
+window.handleMapMode = handleMapMode;
 
 // ===== SKINS =====
 const skins=[
@@ -6752,5 +7036,73 @@ function spawnInfernoKillFx(x,y){
   }
 }
 
+</script>
+<script>
+// ===== FULLSCREEN GLOBAL =====
+// Masuk FS otomatis — dipanggil pada interaksi pertama user (required by browser)
+function enterFS(){
+  if(document.fullscreenElement || document.webkitFullscreenElement) return;
+  const el = document.documentElement;
+  try{
+    if(el.requestFullscreen) el.requestFullscreen();
+    else if(el.webkitRequestFullscreen) el.webkitRequestFullscreen();
+  }catch(e){}
+}
+
+// Manual toggle hanya untuk keluar
+function manualToggleFS(){
+  const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  if(isFS){
+    try{
+      if(document.exitFullscreen) document.exitFullscreen();
+      else if(document.webkitExitFullscreen) document.webkitExitFullscreen();
+    }catch(e){}
+  } else {
+    enterFS();
+  }
+}
+
+// Update ikon tombol
+function _syncFsBtn(){
+  const btn = document.getElementById('globalFsBtn');
+  if(!btn) return;
+  const isFS = !!(document.fullscreenElement || document.webkitFullscreenElement);
+  btn.textContent = isFS ? '⊠' : '⛶';
+  btn.style.display = isFS ? 'none' : 'flex';
+}
+document.addEventListener('fullscreenchange', _syncFsBtn);
+document.addEventListener('webkitfullscreenchange', _syncFsBtn);
+
+// Auto fullscreen pada tap/klik pertama di mana saja
+function _autoFS(){
+  enterFS();
+  // Setelah berhasil, hapus listener — tidak perlu lagi
+  document.removeEventListener('touchstart', _autoFS, true);
+  document.removeEventListener('click', _autoFS, true);
+}
+document.addEventListener('touchstart', _autoFS, true);
+document.addEventListener('click', _autoFS, true);
+
+// Kalau halaman sudah aktif langsung coba (kadang works di beberapa browser)
+document.addEventListener('DOMContentLoaded', ()=>{
+  // Pasang di semua perpindahan halaman / screen
+  const _origGoTo = typeof goTo === 'function' ? goTo : null;
+  if(_origGoTo){
+    window.goTo = function(){
+      enterFS();
+      return _origGoTo.apply(this, arguments);
+    };
+  }
+});
+
+// Patch showGameScreen & showLobbyScreen kalau ada
+document.addEventListener('DOMContentLoaded', ()=>{
+  ['showGameScreen','showLobbyScreen','showMapSelect'].forEach(fn=>{
+    if(typeof window[fn]==='function'){
+      const orig = window[fn];
+      window[fn] = function(){ enterFS(); return orig.apply(this,arguments); };
+    }
+  });
+});
 </script>
 </body>
